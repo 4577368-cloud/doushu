@@ -1,17 +1,19 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { BottomNav as OriginalBottomNav, Header as OriginalHeader } from './components/Layout';
+// 🔥 1. 只引入 BottomNav，不再引入 Header，避免命名冲突
+import { BottomNav } from './components/Layout';
 import { AppTab, ChartSubTab, UserProfile, BaziChart, Gender, ModalData, GanZhi, Pillar, BaziReport, BalanceAnalysis } from './types';
 import { calculateBazi, interpretAnnualPillar, interpretLuckPillar, interpretYearPillar, interpretMonthPillar, interpretDayPillar, interpretHourPillar } from './services/baziService';
 import { analyzeBaziStructured } from './services/geminiService';
 import { sendChatMessage, ChatMessage } from './services/chatService';
 import { getArchives, saveArchive, deleteArchive, saveAiReportToArchive, updateArchive } from './services/storageService';
-import { Activity, BrainCircuit, RotateCcw, Info, X, Sparkles, Sun, Trash2, MapPin, History, Eye, EyeOff, Compass, Calendar, Clock, Check, BarChart3, CheckCircle, FileText, ClipboardCopy, Maximize2, ChevronRight, User, Edit2, Plus, Tag, ShieldCheck, Crown, Send, MessageCircle, HelpCircle, Gem, ArrowLeftRight, GitMerge } from 'lucide-react';
+// 🔥 2. 补全了 'Map' 图标的引入，修复真太阳时报错
+import { Activity, BrainCircuit, RotateCcw, Info, X, Sparkles, Sun, Trash2, MapPin, Map, History, Eye, EyeOff, Compass, Calendar, Clock, Check, BarChart3, CheckCircle, FileText, ClipboardCopy, Maximize2, ChevronRight, User, Edit2, Plus, Tag, ShieldCheck, Crown, Send, MessageCircle, HelpCircle, Gem, ArrowLeftRight, GitMerge } from 'lucide-react';
 import { CHINA_LOCATIONS, FIVE_ELEMENTS, SHEN_SHA_DESCRIPTIONS } from './services/constants';
 
 import ZiweiView from './components/ZiweiView';
 import { BaziAnalysisView } from './components/BaziAnalysisView';
 
-// --- 1. 基础 UI 组件 ---
+// --- 基础工具组件 ---
 const ElementText: React.FC<{ text: string; className?: string; showFiveElement?: boolean }> = ({ text, className = '', showFiveElement = false }) => {
   if (!text) return null;
   const element = FIVE_ELEMENTS[text] || text;
@@ -80,8 +82,9 @@ const SmartTextRenderer: React.FC<{ content: string }> = ({ content }) => {
   );
 };
 
-// --- 🔥 VIP 专属 Header (黑金配色) ---
-const VipHeader: React.FC<{ title: string; rightAction?: React.ReactNode; isVip: boolean }> = ({ title, rightAction, isVip }) => (
+// --- 🔥 3. 统一 Header 组件 (替代原 Layout Header) ---
+// 这个组件会根据 isVip 自动切换样式，所以不需要再引入外部 Header
+const AppHeader: React.FC<{ title: string; rightAction?: React.ReactNode; isVip: boolean }> = ({ title, rightAction, isVip }) => (
   <header className={`sticky top-0 z-50 px-5 h-16 flex items-center justify-between transition-all duration-500 ${isVip ? 'bg-[#1c1917] border-b border-amber-900/30 shadow-2xl' : 'bg-white/90 backdrop-blur-md border-b border-stone-200 text-stone-900'}`}>
     <h1 className={`text-lg font-serif font-black tracking-wider flex items-center gap-2.5 ${isVip ? 'text-amber-100' : 'text-stone-900'}`}>
       {isVip && (
@@ -98,7 +101,7 @@ const VipHeader: React.FC<{ title: string; rightAction?: React.ReactNode; isVip:
   </header>
 );
 
-// --- 🔥 VIP 激活弹窗 (带价格) ---
+// --- VIP 激活弹窗 ---
 const VipActivationModal: React.FC<{ onClose: () => void; onActivate: () => void }> = ({ onClose, onActivate }) => {
     const [code, setCode] = useState('');
     const [error, setError] = useState('');
@@ -116,8 +119,6 @@ const VipActivationModal: React.FC<{ onClose: () => void; onActivate: () => void
         <div className="fixed inset-0 z-[2500] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-stone-950/80 backdrop-blur-md" onClick={onClose} />
             <div className="relative bg-white w-full max-w-sm rounded-[2rem] shadow-2xl overflow-hidden animate-slide-up border border-white/20">
-                
-                {/* 头部：黑金配色 + 醒目价格 */}
                 <div className="bg-gradient-to-br from-stone-900 via-stone-800 to-stone-950 p-7 text-center relative overflow-hidden">
                     <div className="absolute -top-6 -right-6 opacity-10 rotate-12"><Crown size={140} color="white"/></div>
                     <h3 className="text-amber-500/80 text-[10px] font-black tracking-[0.3em] uppercase mb-1 relative z-10">VIP Premium Access</h3>
@@ -133,48 +134,27 @@ const VipActivationModal: React.FC<{ onClose: () => void; onActivate: () => void
                 </div>
                 
                 <div className="p-6 space-y-6 bg-white">
-                    {/* 二维码区域 */}
                     <div className="flex flex-col items-center gap-4">
                         <div className="w-52 h-52 bg-white rounded-2xl border border-stone-100 flex items-center justify-center relative overflow-hidden p-2 shadow-lg group">
                             <div className="absolute inset-0 bg-amber-500/5 group-hover:bg-transparent transition-colors z-10 pointer-events-none"/>
-                            <img 
-                                src="https://imgus.tangbuy.com/static/images/2026-01-14/d3cfc3391f4b4049855b70428d881cc8-17683802616059959910686892450765.jpg" 
-                                alt="Payment QR" 
-                                className="w-full h-full object-contain rounded-lg" 
-                            />
+                            <img src="https://imgus.tangbuy.com/static/images/2026-01-14/d3cfc3391f4b4049855b70428d881cc8-17683802616059959910686892450765.jpg" alt="Payment QR" className="w-full h-full object-contain rounded-lg" />
                         </div>
                         <p className="text-[11px] text-stone-500 text-center max-w-[240px] leading-relaxed">
-                            请使用微信/支付宝扫码支付 <b className="text-stone-900 font-black">¥39.9</b><br/>
-                            支付成功后截图联系客服，获取您的专属密钥
+                            请使用微信/支付宝扫码支付 <b className="text-stone-900 font-black">¥39.9</b><br/>支付成功后截图联系客服，获取您的专属密钥
                         </p>
                     </div>
-
-                    {/* 密钥输入 */}
                     <div className="space-y-2">
-                        <input 
-                            type="text" 
-                            value={code}
-                            onChange={(e) => { setCode(e.target.value); setError(''); }}
-                            placeholder="在此输入专属密钥激活"
-                            className="w-full bg-stone-50 border-2 border-stone-200 rounded-xl px-4 py-4 font-mono font-bold text-center text-base focus:border-amber-400 focus:bg-white outline-none transition-all placeholder:font-sans placeholder:text-stone-300 text-stone-800 shadow-inner"
-                        />
+                        <input type="text" value={code} onChange={(e) => { setCode(e.target.value); setError(''); }} placeholder="在此输入专属密钥激活" className="w-full bg-stone-50 border-2 border-stone-200 rounded-xl px-4 py-4 font-mono font-bold text-center text-base focus:border-amber-400 focus:bg-white outline-none transition-all placeholder:font-sans placeholder:text-stone-300 text-stone-800 shadow-inner"/>
                         {error && <p className="text-xs text-rose-500 text-center font-bold animate-pulse">{error}</p>}
                     </div>
-
-                    {/* 激活按钮 */}
-                    <button 
-                        onClick={handleSubmit}
-                        className="w-full py-4 bg-[#1c1917] text-white rounded-xl font-black text-sm shadow-xl active:scale-95 transition-transform flex items-center justify-center gap-2 hover:bg-stone-800"
-                    >
-                        <Sparkles size={16} className="text-amber-400" /> 立即激活永久 VIP
-                    </button>
+                    <button onClick={handleSubmit} className="w-full py-4 bg-[#1c1917] text-white rounded-xl font-black text-sm shadow-xl active:scale-95 transition-transform flex items-center justify-center gap-2 hover:bg-stone-800"><Sparkles size={16} className="text-amber-400" /> 立即激活永久 VIP</button>
                 </div>
             </div>
         </div>
     );
 };
 
-// --- 🔥 AI 聊天界面 (流式响应 + UI对比度修复) ---
+// --- AI 聊天界面 ---
 const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
     const [messages, setMessages] = useState<ChatMessage[]>([
         { role: 'assistant', content: `尊贵的 VIP 用户，您好！\n我是您的专属命理师。我已经深度研读了您的命盘（${chart.dayMaster}日主，${chart.pattern.name}），请问您今天想了解哪方面的运势？` }
@@ -202,7 +182,6 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
 
         try {
             const contextMessages = [...messages, userMsg].map(m => ({ role: m.role, content: m.content })).slice(-10);
-            
             setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
             
             await sendChatMessage(contextMessages, chart, (chunk) => {
@@ -272,7 +251,7 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
     );
 };
 
-// --- 历史报告详情模态框 ---
+// --- 复用的组件 ---
 const ReportHistoryModal: React.FC<{ report: any; onClose: () => void }> = ({ report, onClose }) => {
     if (!report) return null;
     return (
@@ -302,7 +281,6 @@ const ReportHistoryModal: React.FC<{ report: any; onClose: () => void }> = ({ re
     );
 };
 
-// --- 详情弹窗组件 ---
 const DetailModal: React.FC<{ data: ModalData; chart: BaziChart | null; onClose: () => void }> = ({ data, chart, onClose }) => {
   if (!chart) return null;
   let interp;
@@ -368,7 +346,6 @@ const DetailModal: React.FC<{ data: ModalData; chart: BaziChart | null; onClose:
   );
 };
 
-// --- 五行强弱面板 ---
 const BalancePanel: React.FC<{ balance: BalanceAnalysis; wuxing: Record<string, number>; dm: string }> = ({ balance, wuxing, dm }) => {
   const elements = ['木', '火', '土', '金', '水'];
   return (
@@ -390,7 +367,6 @@ const BalancePanel: React.FC<{ balance: BalanceAnalysis; wuxing: Record<string, 
   );
 };
 
-// --- 八字主网格 (完整版) ---
 const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart, onOpenModal }) => {
   const pillars = [
     { key: 'year', label: '年柱', data: chart.pillars.year },
@@ -808,28 +784,8 @@ const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelec
     return (
         <div className="h-full flex flex-col bg-[#f5f5f4] p-5 overflow-y-auto pb-24 space-y-4">
             
-            {/* VIP 购买卡片 (VIP状态不同) */}
-            {isVip ? (
-                <div className="bg-gradient-to-br from-stone-900 via-[#1c1917] to-stone-900 rounded-3xl p-6 shadow-2xl relative overflow-hidden border border-amber-900/30">
-                    {/* VIP 尊享卡片样式 */}
-                    <div className="absolute top-0 right-0 p-4 opacity-10"><Crown size={120} /></div>
-                    <div className="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-black/20 to-transparent"></div>
-                    
-                    <div className="relative z-10 flex flex-col h-full justify-between min-h-[100px]">
-                        <div className="flex justify-between items-start">
-                            <div>
-                                <h3 className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-400 to-amber-200 tracking-wider">PREMIUM MEMBER</h3>
-                                <p className="text-[10px] text-amber-500/80 font-bold tracking-[0.2em] uppercase mt-1">Lifetime Access</p>
-                            </div>
-                            <Crown size={24} className="text-amber-400" />
-                        </div>
-                        <div className="flex items-center gap-2 mt-6">
-                            <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse"></div>
-                            <span className="text-[10px] text-stone-400 font-medium">尊享特权已激活 · AI 命理师在线</span>
-                        </div>
-                    </div>
-                </div>
-            ) : (
+            {/* VIP 购买卡片 (仅非 VIP 显示) */}
+            {!isVip && (
                 <div onClick={onVipClick} className="bg-gradient-to-r from-stone-900 to-stone-700 rounded-3xl p-5 shadow-lg relative overflow-hidden cursor-pointer group hover:scale-[1.02] transition-transform">
                     <div className="absolute top-0 right-0 p-4 opacity-10"><Crown size={80} /></div>
                     <div className="relative z-10 flex items-center justify-between">
@@ -957,11 +913,11 @@ const App: React.FC = () => {
   };
 
   return (
-    // 🔥 全局背景：VIP 是深色暖金渐变，普通用户是冷灰
+    // 全局背景：VIP 是深色暖金渐变，普通用户是冷灰
     <div className={`flex flex-col h-screen overflow-hidden text-stone-950 font-sans select-none transition-colors duration-700 ${isVip ? 'bg-[#181816]' : 'bg-[#f5f5f4]'}`}>
       
-      {/* 使用 VIP Header 替代默认 Header */}
-      <VipHeader 
+      {/* 使用 AppHeader (替代默认 Header)，自动适配 VIP 样式 */}
+      <AppHeader 
         title={currentTab === AppTab.HOME ? '玄枢命理' : currentProfile?.name || '排盘'} 
         rightAction={currentTab !== AppTab.HOME && <button onClick={()=>{setCurrentProfile(null);setCurrentTab(AppTab.HOME);setAiReport(null);}} className={`p-2 rounded-full transition-colors ${isVip ? 'hover:bg-white/10 text-stone-300' : 'hover:bg-stone-100 text-stone-700'}`}><RotateCcw size={18} /></button>}
         isVip={isVip}
@@ -975,7 +931,7 @@ const App: React.FC = () => {
          <HomeView onGenerate={handleGenerate} archives={archives} />}
       </div>
       
-      <OriginalBottomNav currentTab={currentTab} onTabChange={setCurrentTab} />
+      <BottomNav currentTab={currentTab} onTabChange={setCurrentTab} />
       
       {modalData && <DetailModal data={modalData} chart={baziChart} onClose={() => setModalData(null)} />}
       {showVipModal && <VipActivationModal onClose={() => setShowVipModal(false)} onActivate={handleActivateVip} />}
