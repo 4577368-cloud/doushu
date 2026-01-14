@@ -32,7 +32,11 @@ import {
   JIANG_XING_MAP,
   LIU_XIA_MAP,
   CHAR_MEANINGS,
-  NA_YIN_DESCRIPTIONS
+  NA_YIN_DESCRIPTIONS,
+  // 🔥 新增引入
+  ANNUAL_TEN_GODS_READING,
+  BRANCH_XING,
+  BRANCH_HAI
 } from './constants';
 
 // --- 1. 基础常量定义 ---
@@ -417,7 +421,6 @@ export const getGanZhiForYear = (year: number, dayMaster: string): GanZhi => {
   return createGanZhi(bazi.getYearGan(), bazi.getYearZhi(), getStemIndex(dayMaster));
 };
 
-// --- 🔥 修复：找回丢失的 calculateAnnualFortune 函数 ---
 export const calculateAnnualFortune = (chart: BaziChart, year: number): AnnualFortune => {
   const annualGz = getGanZhiForYear(year, chart.dayMaster);
   const reasons: string[] = [];
@@ -587,7 +590,7 @@ export const interpretDayPillar = (chart: BaziChart): PillarInterpretation => {
   const roleInDestiny = '日柱代表命主自身，是八字核心，反映性格、婚姻、健康及人生主线。';
   
   const summaryParts = [coreSymbolism, positionInsight, ...interactions, hiddenDynamics, naYinInfluence, lifeStageEffect, ...shenShaEffects].filter(Boolean);
-  const integratedSummary = summaryParts.length ? `日柱综合：${summaryParts.join(' ')}` : '信息不足，暂无法深度解读。';
+  const integratedSummary = summaryParts.length ? `综合：${summaryParts.join(' ')}` : '信息不足，暂无法深度解读。';
 
   return { pillarName: '日柱', coreSymbolism, hiddenDynamics, naYinInfluence, lifeStageEffect, shenShaEffects, roleInDestiny, integratedSummary };
 };
@@ -630,6 +633,10 @@ export const interpretLuckPillar = (chart: BaziChart, luckGz: GanZhi): PillarInt
   return { pillarName: '大运', coreSymbolism, hiddenDynamics: '', naYinInfluence: getNaYinSymbolism(luckGz.naYin), lifeStageEffect: `大运处${luckGz.lifeStage}地。`, shenShaEffects, roleInDestiny, integratedSummary };
 };
 
+// ==========================================
+// 🔥 核心升级：流年深度解读函数
+// ==========================================
+
 export const interpretAnnualPillar = (chart: BaziChart, annualGz: GanZhi): PillarInterpretation => {
   const tenGod = annualGz.shiShenGan;
   const element = annualGz.ganElement;
@@ -637,21 +644,24 @@ export const interpretAnnualPillar = (chart: BaziChart, annualGz: GanZhi): Pilla
   const annualGan = annualGz.gan;
   
   // 1. 基础喜忌判断
-  const isYongShen = chart.balance.yongShen.includes(element);
+  // 简单逻辑：如果是喜用神，则取 Beneficial 建议；如果是忌神，则取 Destructive 建议。
+  // 若不在喜忌列表中（闲神），通常倾向于中性，这里暂按 Beneficial 处理但语气可减弱，
+  // 或者为了风险提示，若不是喜用均需谨慎。这里采用 "是忌神则凶，否则偏吉" 的策略。
   const isJiShen = chart.balance.jiShen.includes(element);
   
   let coreSymbolism = `流年${annualGz.gan}${annualGz.zhi}，天干${tenGod}主事。`;
   
-  // 2. 大师建议 (十神流年法 - 保持原有的精髓)
-  let actionableAdvice = "";
-  switch (tenGod) {
-    case '比肩': case '劫财': actionableAdvice = isJiShen ? "【切忌借贷与合伙】今年是“比劫夺财”之年，最大的风险来自于“人”。千万不要借钱给亲友，也不要轻易与人合伙投资，容易产生经济纠纷或被坑骗。职场上需防竞争对手背后使绊。" : "【利于合作】今年人缘不错，适合拓展人脉，与朋友合作求财。虽然开销可能会增加（请客吃饭），但属于“花钱买资源”，利大于弊。"; break;
-    case '食神': case '伤官': actionableAdvice = isJiShen ? "【谨言慎行，防口舌】今年思维活跃但情绪易波动，切忌冲动。最大的禁忌是“怼领导”或“裸辞”，容易因口舌招惹是非。建议多做事少说话，把精力发泄在学习或创作上。" : "【才华变现，利创新】今年灵感爆棚，是展示才华、进修技能的好时机。如果从事创意、技术或口才行业，今年容易出成绩。可以尝试副业或新项目。"; break;
-    case '正财': case '偏财': actionableAdvice = isJiShen ? "【稳健理财，忌贪婪】今年对钱财渴望加重，但财星为忌，容易“财来财去”。切忌高风险投机（如炒币、赌博），容易被套牢。建议强制储蓄，购买固定资产锁住财富。" : "【财运亨通，宜投资】今年财气较旺，是积累财富的好年份。正财运利于加薪，偏财运利于投资。如果有置业或理财计划，今年可以大胆推进。"; break;
-    case '正官': case '七杀': actionableAdvice = isJiShen ? "【注意健康，防压力】今年压力较大，名为“官杀攻身”。切忌熬夜和高危运动，需特别注意身体健康和意外受伤。职场上可能会背黑锅或感到压抑，建议低调做人，以守为攻。" : "【事业晋升，掌权柄】今年事业运势强劲，利于升职加薪或考取公职。女命桃花较旺，利于婚恋。是打拼事业、确立地位的关键一年。"; break;
-    case '正印': case '偏印': actionableAdvice = isJiShen ? "【防钻牛角尖】今年思维容易闭塞，或者感到孤独。切忌固执己见，也不要轻信偏门歪道。还要注意母亲或长辈的健康问题。" : "【利于考学与置业】今年贵人运强，利于考试、考证、买房或装修。遇到困难多向长辈或上司求助，容易获得实质性支持。"; break;
-    default: actionableAdvice = isYongShen ? "流年大吉，诸事顺遂。" : "流年运势需谨慎，宜按部就班。";
-  }
+  // 2. 结构化大师建议 (使用 constants.ts 中的新数据)
+  // 获取十神对应的文案库，若未找到则默认使用"比肩"（防崩坏）
+  const tenGodData = ANNUAL_TEN_GODS_READING[tenGod] || ANNUAL_TEN_GODS_READING['比肩'];
+  const adviceData = isJiShen ? tenGodData.destructive : tenGodData.beneficial;
+
+  const actionableAdvice = `
+  🎯 **核心主题**：${adviceData.theme}
+  💼 **事业**：${adviceData.career}
+  💰 **财运**：${adviceData.wealth}
+  💕 **情感**：${adviceData.love}
+  `.trim();
 
   // ==========================================
   // 🔥 3. 核心升级：全盘引动雷达 (Scanning)
@@ -709,6 +719,24 @@ export const interpretAnnualPillar = (chart: BaziChart, annualGz: GanZhi): Pilla
         '多得贵人助力，人缘佳。'
       }`);
     }
+    
+    // 🔥 新增：5. 相刑 (纠结/折磨)
+    if (BRANCH_XING[annualZhi]?.includes(pZhi)) {
+         triggers.push(`🗡️ 【相刑·${pName}】：流年与${pName}形成相刑。${
+            name === '日' ? '需防身体手术或夫妻互相折磨，内心煎熬。' : 
+            name === '月' ? '人际关系易有摩擦，或内心纠结难以决断。' :
+            '易有口舌或内心不顺。'
+         }`);
+    }
+
+    // 🔥 新增：6. 六害 (小人/分离)
+    if (BRANCH_HAI[annualZhi] === pZhi) {
+        triggers.push(`❄️ 【六害·${pName}】：流年与${pName}相害。主犯小人或亲缘冷淡，${
+            name === '月' ? '防同僚倾轧，或与兄弟不和' : 
+            name === '日' ? '夫妻之间易生误会，或遭外人挑拨' :
+            '易受身边人拖累，有苦难言'
+        }。`);
+    }
   });
 
   // ==========================================
@@ -722,12 +750,11 @@ export const interpretAnnualPillar = (chart: BaziChart, annualGz: GanZhi): Pilla
   const integratedSummary = `
     ${coreSymbolism}
     
-    📌 建议：
     ${actionableAdvice}
     
-    ${triggers.length > 0 ? triggers.join('\n\n') : "🌊 运势：\n流年与原局无显著冲合，也就是所谓的“平运”。平运即是好运，宜按部就班，积蓄力量。"}
+    ${triggers.length > 0 ? "⚡ **全盘引动（重点关注）**：\n" + triggers.join('\n\n') : "🌊 **运势总评**：\n流年与原局无显著冲刑，运势平稳。平运即是好运，宜按部就班，积蓄力量。"}
     
-    ${shenShaList.length > 0 ? "\n🌟 流年神煞：\n" + shenShaList.join('、') : ""}
+    ${shenShaList.length > 0 ? "\n🌟 **流年神煞**：\n" + shenShaList.join('、') : ""}
     
     (纳音：${annualGz.naYin})
   `.trim();
@@ -743,6 +770,7 @@ export const interpretAnnualPillar = (chart: BaziChart, annualGz: GanZhi): Pilla
     integratedSummary
   };
 };
+
 // 7. 导出空函数（兼容性）
 export const calculateAnnualTrend = (chart: BaziChart, year: number): TrendActivation[] => [];
 export const getAdvancedInterpretation = (chart: BaziChart, data: ModalData): InterpretationResult[] => [];

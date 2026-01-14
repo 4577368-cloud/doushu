@@ -1,33 +1,16 @@
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { BottomNav, Header } from './components/Layout';
-import { AppTab, ChartSubTab, UserProfile, BaziChart, Gender, ModalData, GanZhi, Pillar, LuckPillar, AnnualFortune, PatternAnalysis, BalanceAnalysis } from './types';
-import { calculateBazi, getGanZhiForYear, calculateAnnualFortune, getShenShaForDynamicPillar } from './services/baziService';
-import { analyzeBaziStructured, BaziReport } from './services/geminiService';
-import { getArchives, saveArchive, deleteArchive, saveAiReportToArchive } from './services/storageService';
-import { User, Activity, BrainCircuit, RotateCcw, Info, Stars, X, Key, Sparkles, Smile, Heart, Star, Sun, Moon, Flower2, Bird, Cat, Ghost, Crown, Trash2, MapPin, History, TrendingUp, Eye, EyeOff, FolderOpen, Compass, Search, Calendar, Clock, Check, ChevronRight, BarChart3, Quote, Briefcase, Zap, ShieldCheck, CheckCircle, Edit3, Save, FileText, LayoutList, ClipboardCopy, Map, InfoIcon } from 'lucide-react';
-import { 
-  interpretDayPillar, 
-  interpretMonthPillar, 
-  interpretYearPillar, 
-  interpretHourPillar,
-  interpretLuckPillar,
-  interpretAnnualPillar
-} from './services/baziService';
-import { 
-  HEAVENLY_STEMS, 
-  EARTHLY_BRANCHES,
-  CHINA_LOCATIONS,
-  FIVE_ELEMENTS,
-  NA_YIN_DESCRIPTIONS,
-  LIFE_STAGE_DESCRIPTIONS,
-  SHEN_SHA_DESCRIPTIONS,
-  TEN_GODS_READING
-} from './services/constants';
+import { AppTab, ChartSubTab, UserProfile, BaziChart, Gender, ModalData, GanZhi, Pillar, BaziReport, BalanceAnalysis } from './types';
+import { calculateBazi, interpretAnnualPillar, interpretLuckPillar, interpretYearPillar, interpretMonthPillar, interpretDayPillar, interpretHourPillar } from './services/baziService';
+import { analyzeBaziStructured } from './services/geminiService';
+import { getArchives, saveArchive, deleteArchive, saveAiReportToArchive, updateArchive } from './services/storageService';
+import { Activity, BrainCircuit, RotateCcw, Info, X, Sparkles, Sun, Trash2, MapPin, History, Eye, EyeOff, Compass, Calendar, Clock, Check, BarChart3, CheckCircle, FileText, ClipboardCopy, Maximize2, ChevronRight, User, Edit2, Plus, Tag } from 'lucide-react';
+import { CHINA_LOCATIONS, FIVE_ELEMENTS, SHEN_SHA_DESCRIPTIONS } from './services/constants';
 
 import ZiweiView from './components/ZiweiView';
+import { BaziAnalysisView } from './components/BaziAnalysisView';
 
-// --- 基础渲染组件 ---
+// --- 1. 基础 UI 组件 ---
 const ElementText: React.FC<{ text: string; className?: string; showFiveElement?: boolean }> = ({ text, className = '', showFiveElement = false }) => {
   if (!text) return null;
   const element = FIVE_ELEMENTS[text] || text;
@@ -55,87 +38,122 @@ const ShenShaBadge: React.FC<{ name: string }> = ({ name }) => {
   return <span className={`text-[8px] px-1 py-0.5 rounded border whitespace-nowrap leading-none ${style}`}>{name.length > 2 ? name.slice(0, 2) : name}</span>;
 };
 
-// --- 详情弹窗 ---
+// --- 智能排版渲染器 ---
+const SmartTextRenderer: React.FC<{ content: string }> = ({ content }) => {
+  if (!content) return null;
+  const lines = content.split('\n').filter(line => line.trim() !== '');
+  return (
+    <div className="space-y-3 text-[13px] leading-relaxed text-stone-700">
+      {lines.map((line, idx) => {
+        const isHeader = line.match(/^(\p{Emoji}|🎯|⚡|🌊|🌟|💼|💰|💕|#)/u);
+        if (isHeader) {
+           return (
+             <div key={idx} className="mt-4 first:mt-0 bg-stone-50 border-l-2 border-indigo-400 pl-3 py-1.5 rounded-r-lg">
+                <span className="font-bold text-stone-900">{line.replace(/#/g, '')}</span>
+             </div>
+           );
+        }
+        const parts = line.split(/(\*\*.*?\*\*)/g);
+        return (
+          <p key={idx} className="text-justify">
+            {parts.map((part, i) => {
+              if (part.startsWith('**') && part.endsWith('**')) {
+                return <span key={i} className="font-bold text-indigo-700 mx-0.5">{part.slice(2, -2)}</span>;
+              }
+              return part;
+            })}
+          </p>
+        );
+      })}
+    </div>
+  );
+};
+
+// --- 历史报告详情模态框 ---
+const ReportHistoryModal: React.FC<{ report: any; onClose: () => void }> = ({ report, onClose }) => {
+    if (!report) return null;
+    return (
+        <div className="fixed inset-0 z-[2200] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm" onClick={onClose} />
+            <div className="relative bg-white w-full max-w-lg rounded-[2rem] shadow-2xl flex flex-col max-h-[85vh] animate-slide-up overflow-hidden">
+                <div className="p-5 border-b border-stone-100 flex justify-between items-center bg-stone-50/80 backdrop-blur sticky top-0 z-10">
+                    <div>
+                        <div className="flex items-center gap-2 mb-1">
+                            <span className="text-[10px] font-black px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">{report.userName}</span>
+                            <span className="text-[10px] text-stone-400">{new Date(report.date).toLocaleString()}</span>
+                        </div>
+                        <h3 className="font-black text-stone-900 text-sm">大师解盘报告详单</h3>
+                    </div>
+                    <button onClick={onClose} className="p-2 rounded-full bg-stone-100 text-stone-400 hover:text-stone-950 transition-colors"><X size={20}/></button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar bg-white">
+                    <SmartTextRenderer content={report.content} />
+                </div>
+                <div className="p-4 border-t border-stone-100 bg-stone-50">
+                    <button onClick={() => { navigator.clipboard.writeText(report.content); alert('报告内容已复制'); }} className="w-full py-3 bg-stone-900 text-white rounded-xl text-sm font-bold shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-transform">
+                        <ClipboardCopy size={16} /> 复制完整报告
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- 2. 详情弹窗组件 ---
 const DetailModal: React.FC<{ data: ModalData; chart: BaziChart | null; onClose: () => void }> = ({ data, chart, onClose }) => {
   if (!chart) return null;
-  const interp = data.pillarName.includes('年') ? interpretYearPillar(chart) : 
-                 data.pillarName.includes('月') ? interpretMonthPillar(chart) : 
-                 data.pillarName.includes('日') ? interpretDayPillar(chart) : 
-                 data.pillarName.includes('时') ? interpretHourPillar(chart) : 
-                 data.title.includes('大运') ? interpretLuckPillar(chart, data.ganZhi) : interpretAnnualPillar(chart, data.ganZhi);
-
+  let interp;
+  if (data.pillarName === '流年') {
+      interp = interpretAnnualPillar(chart, data.ganZhi);
+  } else if (data.pillarName === '大运') {
+      interp = interpretLuckPillar(chart, data.ganZhi);
+  } else {
+      interp = data.pillarName.includes('年') ? interpretYearPillar(chart) : 
+               data.pillarName.includes('月') ? interpretMonthPillar(chart) : 
+               data.pillarName.includes('日') ? interpretDayPillar(chart) : 
+               data.pillarName.includes('时') ? interpretHourPillar(chart) : null;
+  }
   const [copied, setCopied] = useState(false);
-
   const handleCopyText = () => {
     const textToCopy = interp?.integratedSummary || "";
-    navigator.clipboard.writeText(textToCopy).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+    navigator.clipboard.writeText(textToCopy).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
   };
+  if (!interp) return null;
 
   return (
     <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden border border-stone-200 animate-slide-up flex flex-col max-h-[90vh]">
-        <div className="p-5 border-b border-stone-100 flex justify-between items-center bg-stone-50/80 sticky top-0 z-10">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-5 bg-indigo-600 rounded-full" />
-            <span className="text-sm font-black text-stone-900 uppercase tracking-widest">{data.pillarName}深度解析</span>
-          </div>
-          <button onClick={onClose} className="p-2 text-stone-400 hover:text-stone-950 transition-colors"><X size={20}/></button>
+      <div className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden border border-stone-200 animate-slide-up flex flex-col max-h-[85vh]">
+        <div className="p-5 border-b border-stone-100 flex justify-between items-center bg-white/90 backdrop-blur sticky top-0 z-10">
+          <div className="flex items-center gap-2"><div className="w-1.5 h-4 bg-indigo-600 rounded-full" /><span className="text-sm font-black text-stone-900 uppercase tracking-widest">{data.pillarName}深度解析</span></div>
+          <button onClick={onClose} className="p-2 rounded-full bg-stone-50 text-stone-400 hover:text-stone-950 hover:bg-stone-100 transition-colors"><X size={18}/></button>
         </div>
-
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-6">
-          <div className="flex justify-center items-center gap-5 bg-stone-50 py-3 rounded-3xl border border-stone-100 shadow-inner shrink-0">
-            <div className="flex flex-col items-center">
-              <ElementText text={data.ganZhi.gan} className="text-3xl font-serif font-black" showFiveElement />
-              <span className="text-[9px] mt-1 text-stone-400 font-bold uppercase">天干</span>
-            </div>
-            <div className="w-px h-10 bg-stone-200" />
-            <div className="flex flex-col items-center">
-              <ElementText text={data.ganZhi.zhi} className="text-3xl font-serif font-black" showFiveElement />
-              <span className="text-[9px] mt-1 text-stone-400 font-bold uppercase">地支</span>
-            </div>
-            <div className="w-px h-10 bg-stone-200" />
-            <div className="flex flex-col items-center justify-center text-center px-1">
-              <span className="text-[11px] font-black text-indigo-700">{data.pillarName === '日柱' ? '日元' : data.ganZhi.shiShenGan}</span>
-              <span className="text-[9px] text-stone-500 font-medium leading-tight">{data.ganZhi.naYin}</span>
-              <span className={`text-[9px] font-bold px-1.5 rounded-full mt-0.5 ${data.ganZhi.lifeStage.includes('旺') ? 'bg-red-50 text-red-600' : 'bg-stone-200 text-stone-600'}`}>
-                {data.ganZhi.lifeStage}
-              </span>
+          <div className="flex justify-center items-center gap-6 bg-gradient-to-br from-stone-50 to-white py-4 rounded-3xl border border-stone-200 shadow-sm shrink-0">
+            <div className="flex flex-col items-center"><ElementText text={data.ganZhi.gan} className="text-4xl font-serif font-black" showFiveElement /></div>
+            <div className="w-px h-12 bg-stone-200" />
+            <div className="flex flex-col items-center"><ElementText text={data.ganZhi.zhi} className="text-4xl font-serif font-black" showFiveElement /></div>
+            <div className="w-px h-12 bg-stone-200" />
+            <div className="flex flex-col items-center justify-center text-center gap-1">
+              <span className="text-[10px] font-black text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-lg">{data.pillarName === '日柱' ? '日元' : data.ganZhi.shiShenGan}</span>
+              <span className="text-[10px] text-stone-500 font-medium">{data.ganZhi.naYin}</span>
+              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${['帝旺','临官','冠带','长生'].includes(data.ganZhi.lifeStage) ? 'bg-red-50 text-red-600' : 'bg-stone-100 text-stone-500'}`}>{data.ganZhi.lifeStage}</span>
             </div>
           </div>
-
-          <div className="space-y-5">
-            <section className="space-y-2">
-              <div className="flex justify-between items-center">
-                <h5 className="text-[11px] font-black text-emerald-600 flex items-center gap-1.5 uppercase tracking-wider">
-                  <CheckCircle size={12} /> 大师详断
-                </h5>
-                <button 
-                  onClick={handleCopyText}
-                  className={`flex items-center gap-1 text-[9px] font-bold transition-all px-2 py-1 rounded-full ${copied ? 'bg-emerald-600 text-white' : 'bg-stone-100 text-stone-400 hover:bg-stone-200 hover:text-stone-600'}`}
-                >
-                  {copied ? <><Check size={10}/> 已复制</> : <><ClipboardCopy size={10}/> 复制</>}
-                </button>
+          <div className="space-y-6">
+            <section className="space-y-3">
+              <div className="flex justify-between items-center px-1">
+                <h5 className="text-xs font-black text-stone-800 flex items-center gap-1.5 uppercase tracking-wider"><CheckCircle size={14} className="text-emerald-500" /> 大师断语</h5>
+                <button onClick={handleCopyText} className={`flex items-center gap-1 text-[10px] font-bold transition-all px-2.5 py-1 rounded-full ${copied ? 'bg-emerald-600 text-white' : 'bg-stone-100 text-stone-500 hover:bg-stone-200'}`}>{copied ? <Check size={12}/> : <ClipboardCopy size={12}/>} {copied ? '已复制' : '复制'}</button>
               </div>
-              <div className="text-[13px] text-stone-800 leading-relaxed whitespace-pre-wrap text-justify font-bold bg-emerald-50/20 p-4 rounded-2xl border border-emerald-100/50 shadow-sm italic">
-                {interp?.integratedSummary}
-              </div>
+              <div className="bg-white p-1 rounded-2xl"><SmartTextRenderer content={interp.integratedSummary} /></div>
             </section>
-
             {data.shenSha.length > 0 && (
-              <section className="space-y-2">
-                <h5 className="text-[11px] font-black text-amber-600 flex items-center gap-1.5 uppercase tracking-wider">
-                  <Star size={12} /> 神煞加持
-                </h5>
-                <div className="grid grid-cols-1 gap-2">
+              <section className="space-y-3 pt-2 border-t border-stone-100">
+                <h5 className="text-xs font-black text-stone-800 flex items-center gap-1.5 uppercase tracking-wider px-1"><Sparkles size={14} className="text-amber-500" /> 神煞加持</h5>
+                <div className="grid grid-cols-1 gap-2.5">
                   {data.shenSha.map(s => (
-                    <div key={s} className="flex gap-3 items-start p-3 bg-white border border-stone-100 rounded-xl hover:bg-amber-50/30 transition-colors">
-                      <div className="shrink-0 pt-0.5"><ShenShaBadge name={s}/></div>
-                      <p className="text-[11px] text-stone-600 leading-normal font-medium">{SHEN_SHA_DESCRIPTIONS[s] || "此星入命，主命局有特定之感应。"}</p>
-                    </div>
+                    <div key={s} className="flex gap-3 items-start p-3 bg-stone-50/50 border border-stone-100 rounded-xl"><div className="shrink-0 pt-0.5"><ShenShaBadge name={s}/></div><p className="text-[11px] text-stone-600 leading-normal font-medium">{SHEN_SHA_DESCRIPTIONS[s] || "此星入命，主命局有特定之感应。"}</p></div>
                   ))}
                 </div>
               </section>
@@ -147,7 +165,7 @@ const DetailModal: React.FC<{ data: ModalData; chart: BaziChart | null; onClose:
   );
 };
 
-// --- 五行强弱面板 ---
+// --- 3. 五行强弱面板 ---
 const BalancePanel: React.FC<{ balance: BalanceAnalysis; wuxing: Record<string, number>; dm: string }> = ({ balance, wuxing, dm }) => {
   const elements = ['木', '火', '土', '金', '水'];
   return (
@@ -158,10 +176,7 @@ const BalancePanel: React.FC<{ balance: BalanceAnalysis; wuxing: Record<string, 
       </div>
       <div className="grid grid-cols-5 gap-1.5">
         {elements.map(el => (
-          <div key={el} className="flex flex-col items-center gap-1.5 p-1.5 rounded-xl bg-stone-50 border border-stone-200 shadow-inner">
-            <ElementText text={el} className="font-black text-[10px]" />
-            <div className="text-[9px] font-black text-stone-800 bg-white px-1.5 rounded-full border border-stone-100">{wuxing[el] || 0}</div>
-          </div>
+          <div key={el} className="flex flex-col items-center gap-1.5 p-1.5 rounded-xl bg-stone-50 border border-stone-200 shadow-inner"><ElementText text={el} className="font-black text-[10px]" /><div className="text-[9px] font-black text-stone-800 bg-white px-1.5 rounded-full border border-stone-100">{wuxing[el] || 0}</div></div>
         ))}
       </div>
       <div className="bg-indigo-50/40 p-3 rounded-xl border border-indigo-100/50">
@@ -172,7 +187,7 @@ const BalancePanel: React.FC<{ balance: BalanceAnalysis; wuxing: Record<string, 
   );
 };
 
-// --- 八字主网格 ---
+// --- 4. 八字主网格 ---
 const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart, onOpenModal }) => {
   const pillars = [
     { key: 'year', label: '年柱', data: chart.pillars.year },
@@ -180,24 +195,17 @@ const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart
     { key: 'day', label: '日柱', data: chart.pillars.day },
     { key: 'hour', label: '时柱', data: chart.pillars.hour },
   ];
-
   const rows = [
     { label: '天干', render: (p: Pillar) => (
-      <div onClick={() => onOpenModal(p.name, p.ganZhi, p.name, p.shenSha)} className="relative w-full h-full flex flex-col items-center justify-center pt-2 cursor-pointer group">
-        <span className="absolute top-0.5 right-0.5 text-[8px] font-black text-indigo-600 scale-90">{p.name === '日柱' ? '日元' : p.ganZhi.shiShenGan}</span>
-        <ElementText text={p.ganZhi.gan} className="text-2xl font-bold font-serif" showFiveElement />
-      </div>
+      <div onClick={() => onOpenModal(p.name, p.ganZhi, p.name, p.shenSha)} className="relative w-full h-full flex flex-col items-center justify-center pt-2 cursor-pointer group hover:bg-black/5 transition-colors rounded-lg"><span className="absolute top-0.5 right-0.5 text-[8px] font-black text-indigo-600 scale-90">{p.name === '日柱' ? '日元' : p.ganZhi.shiShenGan}</span><ElementText text={p.ganZhi.gan} className="text-2xl font-bold font-serif" showFiveElement /></div>
     )},
     { label: '地支', render: (p: Pillar) => (
-      <div onClick={() => onOpenModal(p.name, p.ganZhi, p.name, p.shenSha)} className="flex flex-col items-center justify-center py-1 cursor-pointer">
-        <ElementText text={p.ganZhi.zhi} className="text-2xl font-bold font-serif" showFiveElement />
-      </div>
+      <div onClick={() => onOpenModal(p.name, p.ganZhi, p.name, p.shenSha)} className="flex flex-col items-center justify-center py-1 cursor-pointer hover:bg-black/5 transition-colors rounded-lg"><ElementText text={p.ganZhi.zhi} className="text-2xl font-bold font-serif" showFiveElement /></div>
     )},
     { label: '星运', render: (p: Pillar) => <span className="text-[10px] font-black text-stone-900">{p.ganZhi.lifeStage}</span> },
     { label: '纳音', render: (p: Pillar) => <span className="text-[9px] text-stone-700 font-medium py-1 px-0.5 whitespace-nowrap">{p.ganZhi.naYin}</span> },
     { label: '神煞', render: (p: Pillar) => (<div className="flex flex-wrap justify-center gap-0.5 w-full px-0.5 min-h-[40px] content-start pt-1">{p.shenSha.slice(0, 3).map((s, i) => <ShenShaBadge key={i} name={s} />)}</div>) }
   ];
-
   return (
     <div className="bg-white border border-stone-300 rounded-2xl overflow-hidden shadow-sm">
       <div className="grid grid-cols-5 bg-stone-100 border-b border-stone-300 text-center text-[9px] font-bold text-stone-700 uppercase tracking-wider py-1.5">
@@ -213,61 +221,28 @@ const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart
   );
 };
 
-// --- 六柱联动网格 ---
-const FortuneGrid: React.FC<{ chart: BaziChart; year: number; onOpenModal: any }> = ({ chart, year, onOpenModal }) => {
-    const annualGz = getGanZhiForYear(year, chart.dayMaster);
-    const luckIdx = chart.luckPillars.findIndex(l => year >= l.startYear && year <= l.endYear);
-    const currentLuck = chart.luckPillars[luckIdx !== -1 ? luckIdx : 0];
-    const pillars = [
-        { title: '年柱', gz: chart.pillars.year.ganZhi, ss: chart.pillars.year.shenSha },
-        { title: '月柱', gz: chart.pillars.month.ganZhi, ss: chart.pillars.month.shenSha },
-        { title: '日柱', gz: chart.pillars.day.ganZhi, ss: chart.pillars.day.shenSha },
-        { title: '时柱', gz: chart.pillars.hour.ganZhi, ss: chart.pillars.hour.shenSha },
-        { title: '大运', gz: currentLuck.ganZhi, ss: getShenShaForDynamicPillar(currentLuck.ganZhi.gan, currentLuck.ganZhi.zhi, chart), highlight: 'text-indigo-600', dynamic: 'luck' },
-        { title: '流年', gz: annualGz, ss: getShenShaForDynamicPillar(annualGz.gan, annualGz.zhi, chart), highlight: 'text-indigo-600', dynamic: 'year' }
-    ];
-    const rows = [
-        { label: '天干', render: (p: any) => (
-          <div className="relative w-full py-1 flex flex-col items-center cursor-pointer" onClick={() => onOpenModal(p.title, p.gz, p.title, p.ss)}>
-            <span className="absolute top-0 right-0.5 text-[8px] font-black text-indigo-500">{p.title === '日柱' ? '日元' : p.gz.shiShenGan}</span>
-            <ElementText text={p.gz.gan} className="text-xl font-black font-serif" showFiveElement />
-          </div>
-        )},
-        { label: '地支', render: (p: any) => <div className="py-1 flex flex-col items-center cursor-pointer" onClick={() => onOpenModal(p.title, p.gz, p.title, p.ss)}><ElementText text={p.gz.zhi} className="text-xl font-black font-serif" showFiveElement /></div> },
-        { label: '星运', render: (p: any) => <span className="text-[9px] font-black text-stone-900">{p.gz.lifeStage}</span> },
-        { label: '藏干', render: (p: any) => (
-          <div className="flex flex-col text-[8px] py-1 items-center gap-0.5">
-            {p.gz.hiddenStems.map((h: any, i: number) => <div key={i} className={`flex items-center gap-0.5 ${h.type === '主气' ? 'font-black' : 'text-stone-400'}`}><ElementText text={h.stem} /><span>{h.shiShen}</span></div>)}
-          </div>
-        )},
-        { label: '纳音', render: (p: any) => <span className="text-[8px] font-medium py-1 text-stone-500 whitespace-nowrap">{p.gz.naYin}</span> },
-        { label: '神煞', render: (p: any) => <div className="flex flex-col gap-0.5 py-1 px-0.5 overflow-hidden min-h-[44px]">{p.ss.slice(0, 2).map((s: string, i: number) => <ShenShaBadge key={i} name={s} />)}</div> }
-    ];
-    return (
-        <div className="bg-white border border-stone-300 rounded-3xl overflow-hidden shadow-md">
-            <div className="grid grid-cols-7 divide-x divide-stone-200 bg-stone-100 border-b border-stone-300 text-center py-1.5 text-[9px] font-black text-stone-700 uppercase">
-                <div className="bg-stone-100">项目</div>{pillars.map((p, i) => <div key={i} className={p.highlight ? `${p.highlight} font-black` : 'text-stone-700'}>{p.title}</div>)}
-            </div>
-            {rows.map((row, rIdx) => (
-                <div key={rIdx} className={`grid grid-cols-7 divide-x divide-stone-200 border-b border-stone-200 last:border-0 items-center text-center ${rIdx % 2 === 0 ? 'bg-white' : 'bg-stone-50/50'}`}>
-                    <div className="text-[9px] font-black text-stone-400 uppercase bg-stone-100/10 h-full flex items-center justify-center border-r border-stone-200 px-0.5">{row.label}</div>
-                    {pillars.map((p, i) => (
-                      <div key={i} className={`py-1 ${p.dynamic === 'luck' ? 'bg-indigo-50/20 border-l-[1.5px] border-indigo-400/30' : p.dynamic === 'year' ? 'bg-amber-50/20 border-l-[1.5px] border-amber-400/30' : ''}`}>
-                        {row.render(p)}
-                      </div>
-                    ))}
-                </div>
-            ))}
-        </div>
-    );
-};
-
+// --- 5. 综合图表视图组件 ---
 const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowModal: any; onSaveReport: any; onAiAnalysis: any; loadingAi: boolean; aiReport: BaziReport | null }> = ({ profile, chart, onShowModal, onSaveReport, onAiAnalysis, loadingAi, aiReport }) => {
   const [activeSubTab, setActiveSubTab] = useState<ChartSubTab>(ChartSubTab.BASIC);
-  const [analysisYear, setAnalysisYear] = useState(new Date().getFullYear());
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('ai_api_key') || '');
   const [showApiKey, setShowApiKey] = useState(false);
-  const fortune = calculateAnnualFortune(chart, analysisYear);
+  const [archives, setArchives] = useState<UserProfile[]>([]);
+  const [selectedHistoryReport, setSelectedHistoryReport] = useState<any | null>(null);
+
+  useEffect(() => { setArchives(getArchives()); }, [aiReport]);
+
+  const allHistoryReports = useMemo(() => {
+      const all: any[] = [];
+      archives.forEach(user => {
+          if (user.aiReports && user.aiReports.length > 0) {
+              user.aiReports.forEach(report => {
+                  all.push({ ...report, userName: user.name, userGender: user.gender });
+              });
+          }
+      });
+      return all.sort((a, b) => b.date - a.date);
+  }, [archives]);
+
   const openDetailedModal = (title: string, gz: GanZhi, name: string, ss: string[]) => onShowModal({ title, pillarName: name, ganZhi: gz, shenSha: ss });
 
   return (
@@ -295,93 +270,64 @@ const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowMo
                 <BalancePanel balance={chart.balance} wuxing={chart.wuxingCounts} dm={chart.dayMaster} />
             </div>
          )}
+         
          {activeSubTab === ChartSubTab.DETAIL && (
-             <div className="space-y-4 animate-fade-in">
-                 <FortuneGrid chart={chart} year={analysisYear} onOpenModal={openDetailedModal} />
-                 
-                 <div className="bg-white rounded-2xl border border-stone-300 shadow-sm overflow-hidden">
-                    <div className="bg-stone-100 px-4 py-1.5 border-b border-stone-300 flex items-center justify-between">
-                      <div className="flex items-center gap-1.5"><History size={14} className="text-stone-700"/><span className="text-[9px] font-black text-stone-800 uppercase tracking-widest">大运巡航</span></div>
-                      <div className={`px-2 py-0.5 rounded text-[8px] font-black ${fortune.rating === '吉' ? 'bg-emerald-100 text-emerald-700' : fortune.rating === '凶' ? 'bg-rose-100 text-rose-700' : 'bg-stone-200 text-stone-600'}`}>{analysisYear}年{fortune.rating}运</div>
-                    </div>
-                    <div className="flex overflow-x-auto no-scrollbar p-1.5 gap-2 bg-stone-50/30">
-                        {chart.luckPillars.map((luck, idx) => {
-                            const isCurrent = analysisYear >= luck.startYear && analysisYear <= luck.endYear;
-                            return (
-                                <button key={idx} onClick={() => setAnalysisYear(luck.startYear)} className={`flex-shrink-0 min-w-[60px] py-1.5 px-0.5 rounded-lg border-2 transition-all flex flex-col items-center justify-center gap-0.5 ${isCurrent ? 'bg-indigo-600 border-indigo-600 text-white shadow-md ring-2 ring-indigo-100' : 'bg-white border-stone-200 text-stone-600 hover:border-stone-400'}`}>
-                                    <span className={`text-[9px] font-black ${isCurrent ? 'text-white' : 'text-stone-950'}`}>{luck.startAge}岁</span>
-                                    <div className="font-serif font-black text-xs flex gap-0.5 leading-none"><ElementText text={luck.ganZhi.gan} className={isCurrent?'text-white':''}/><ElementText text={luck.ganZhi.zhi} className={isCurrent?'text-white':''}/></div>
-                                    <span className={`text-[7px] font-black ${isCurrent ? 'text-indigo-200' : 'text-stone-500'}`}>{luck.startYear}</span>
-                                </button>
-                            );
-                        })}
-                    </div>
-                 </div>
-
-                 <div className="bg-white p-3 rounded-2xl border border-stone-300 shadow-sm">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-[10px] font-black text-stone-950 flex items-center gap-1.5"><TrendingUp size={14} className="text-amber-600"/>流年选择 ({analysisYear})</span>
-                    </div>
-                    <div className="grid grid-cols-5 gap-1">
-                        {(() => {
-                            const luck = chart.luckPillars.find(l => analysisYear >= l.startYear && analysisYear <= l.endYear) || chart.luckPillars[0];
-                            return Array.from({length: 10}).map((_, i) => {
-                                const y = luck.startYear + i;
-                                const gz = getGanZhiForYear(y, chart.dayMaster);
-                                const isSel = analysisYear === y;
-                                const fort = calculateAnnualFortune(chart, y);
-                                return (
-                                    <button key={y} onClick={()=>setAnalysisYear(y)} className={`py-1 rounded-lg border-2 text-center transition-all relative ${isSel ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-sm scale-105 z-10' : 'bg-white border-stone-200 text-stone-800 hover:border-stone-400'}`}>
-                                        <div className="text-[7px] font-black mb-0.5 opacity-60">{y}</div>
-                                        <div className="text-[10px] font-black font-serif leading-none">{gz.gan}{gz.zhi}</div>
-                                        {fort.rating !== '平' && <div className={`absolute top-0.5 right-0.5 w-1 h-1 rounded-full border border-white ${fort.rating==='吉'?'bg-emerald-500':'bg-rose-500'}`} />}
-                                    </button>
-                                );
-                            });
-                        })()}
-                    </div>
-                 </div>
-
-                 <div className={`p-4 rounded-2xl border-2 shadow-sm ${fortune.rating === '吉' ? 'bg-emerald-50/60 border-emerald-200' : fortune.rating === '凶' ? 'bg-rose-50/60 border-rose-200' : 'bg-stone-50 border-stone-300'}`}>
-                    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-black/5"><div className={`w-8 h-8 rounded-xl flex items-center justify-center shadow-sm ${fortune.rating === '吉' ? 'bg-emerald-600 text-white' : fortune.rating === '凶' ? 'bg-rose-600 text-white' : 'bg-stone-600 text-white'}`}><CheckCircle size={18}/></div><div><h4 className={`text-sm font-black ${fortune.rating === '吉' ? 'text-emerald-950' : fortune.rating === '凶' ? 'text-rose-950' : 'text-stone-950'}`}>{analysisYear} {fortune.rating}运详解</h4></div></div>
-                    <div className="space-y-3">{fortune.reasons.map((r, i) => (<div key={i} className="flex gap-2.5 items-start group"><div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${fortune.rating === '吉' ? 'bg-emerald-500' : fortune.rating === '凶' ? 'bg-rose-500' : 'bg-stone-600'}`} /><p className={`text-[12px] leading-relaxed text-justify font-bold ${fortune.rating === '吉' ? 'text-emerald-950' : fortune.rating === '凶' ? 'text-rose-950' : 'text-stone-950'}`} dangerouslySetInnerHTML={{ __html: r.replace(/【(.*?)】/g, '<b class="bg-black/5 px-0.5 rounded">$1</b>') }} /></div>))}</div>
-                 </div>
-             </div>
+             <div className="animate-fade-in"><BaziAnalysisView chart={chart} onShowModal={openDetailedModal} /></div>
          )}
+         
          {activeSubTab === ChartSubTab.ANALYSIS && (
-            <div className="space-y-4 animate-fade-in">
+            <div className="space-y-6 animate-fade-in">
                 <div className="bg-white border border-stone-300 p-5 rounded-2xl shadow-sm">
                     <div className="relative mb-4">
                         <input type={showApiKey?"text":"password"} value={apiKey} onChange={e => {setApiKey(e.target.value); localStorage.setItem('ai_api_key', e.target.value);}} placeholder="填入 API Key" className="w-full bg-stone-50 border border-stone-300 p-3 rounded-xl text-sm font-sans focus:border-stone-950 outline-none shadow-inner font-black text-stone-950"/>
                         <button onClick={()=>setShowApiKey(!showApiKey)} className="absolute right-3 top-3 text-stone-400">{showApiKey?<EyeOff size={18}/>:<Eye size={18}/>}</button>
                     </div>
                     <button onClick={onAiAnalysis} disabled={loadingAi || !apiKey} className={`w-full py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all ${apiKey ? 'bg-stone-950 text-white active:scale-95 shadow-lg' : 'bg-stone-100 text-stone-400'}`}>
-                      {loadingAi ? <Activity className="animate-spin" size={20}/> : <BrainCircuit size={20}/>} {loadingAi ? '解盘中，请稍候...' : '生成大师解盘报告'}
+                      {loadingAi ? <Activity className="animate-spin" size={20}/> : <BrainCircuit size={20}/>} {loadingAi ? '解盘中，请稍候...' : '为当前命盘生成报告'}
                     </button>
                  </div>
                  {aiReport && (
-                     <div className="bg-white border border-stone-300 p-6 rounded-3xl space-y-6 shadow-sm">
-                         <h3 className="font-serif font-black text-stone-950 text-lg border-b border-stone-100 pb-4 text-center">命运宏图 · 深度推演</h3>
-                         <div className="space-y-6">
-                            {aiReport.sections.map(s => (
-                                <div key={s.id} className="space-y-2.5">
-                                   <h4 className="font-black text-stone-950 text-[13px] flex items-center gap-2"><div className="w-1 h-3 bg-stone-950 rounded-full"/>{s.title}</h4>
-                                   <div className="text-[13px] text-stone-800 leading-relaxed text-justify px-2.5 whitespace-pre-wrap border-l-2 border-stone-100 font-bold">
-                                     {typeof s.content === 'string' ? s.content : JSON.stringify(s.content, null, 2)}
-                                   </div>
-                                </div>
-                            ))}
+                     <div className="bg-white border border-stone-300 p-6 rounded-3xl space-y-4 shadow-sm animate-slide-up">
+                         <div className="flex items-center gap-2 text-emerald-600 font-black border-b border-stone-100 pb-3">
+                             <Sparkles size={18}/> <span>本次生成结果</span>
                          </div>
-                         <button onClick={() => {navigator.clipboard.writeText(aiReport.copyText); alert("报告已复制");}} className="w-full bg-stone-50 text-stone-700 py-3 rounded-xl text-[11px] font-black border border-stone-200 shadow-inner">一键保存报告文本</button>
+                         <div className="bg-stone-50 p-4 rounded-xl text-sm leading-relaxed text-stone-700 max-h-[300px] overflow-y-auto custom-scrollbar">
+                            <SmartTextRenderer content={aiReport.copyText} />
+                         </div>
+                         <button onClick={() => {navigator.clipboard.writeText(aiReport.copyText); alert("报告已复制");}} className="w-full bg-emerald-50 text-emerald-700 py-3 rounded-xl text-xs font-black border border-emerald-100 shadow-sm flex items-center justify-center gap-2">
+                             <ClipboardCopy size={14}/> 复制本次报告内容
+                         </button>
                      </div>
                  )}
+                 <div className="space-y-3">
+                     <div className="flex items-center gap-2 px-2"><History size={16} className="text-stone-400"/><h3 className="font-black text-stone-600 text-xs uppercase tracking-wider">全站解盘历史存档 ({allHistoryReports.length})</h3></div>
+                     {allHistoryReports.length > 0 ? (
+                         <div className="grid grid-cols-1 gap-3">
+                             {allHistoryReports.map((report, idx) => (
+                                 <div key={report.id || idx} className="bg-white border border-stone-200 p-4 rounded-2xl shadow-sm hover:shadow-md transition-all group">
+                                     <div className="flex justify-between items-start mb-2">
+                                         <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-xs border border-indigo-100">{report.userName?.[0]}</div><div><div className="font-black text-stone-900 text-sm">{report.userName}</div><div className="text-[10px] text-stone-400">{new Date(report.date).toLocaleString()}</div></div></div>
+                                         <span className="text-[10px] font-bold px-2 py-0.5 bg-stone-100 text-stone-500 rounded-full">{report.type === 'ziwei' ? '紫微' : '八字'}</span>
+                                     </div>
+                                     <div className="text-xs text-stone-500 line-clamp-2 mb-3 leading-relaxed bg-stone-50/50 p-2 rounded-lg">{report.content.slice(0, 80)}...</div>
+                                     <div className="flex gap-2">
+                                         <button onClick={() => setSelectedHistoryReport(report)} className="flex-1 py-2 bg-stone-900 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1 group-hover:bg-indigo-600 transition-colors"><Maximize2 size={12}/> 查看完整报告</button>
+                                         <button onClick={() => { navigator.clipboard.writeText(report.content); alert('已复制'); }} className="w-10 flex items-center justify-center border border-stone-200 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-50"><ClipboardCopy size={14}/></button>
+                                     </div>
+                                 </div>
+                             ))}
+                         </div>
+                     ) : <div className="text-center py-10 text-stone-300 text-xs italic bg-stone-50 rounded-2xl border border-stone-100 border-dashed">暂无历史生成记录</div>}
+                 </div>
             </div>
          )}
       </div>
+      {selectedHistoryReport && <ReportHistoryModal report={selectedHistoryReport} onClose={() => setSelectedHistoryReport(null)} />}
     </div>
   );
 };
 
+// --- 6. 首页视图组件 ---
 const HomeView: React.FC<{ onGenerate: (profile: UserProfile) => void; archives: UserProfile[]; }> = ({ onGenerate, archives }) => {
   const [name, setName] = useState('');
   const [gender, setGender] = useState<Gender>('male');
@@ -542,6 +488,100 @@ const HomeView: React.FC<{ onGenerate: (profile: UserProfile) => void; archives:
   );
 };
 
+// --- 7. 档案视图组件 ---
+const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelect: any }> = ({ archives, setArchives, onSelect }) => {
+    const [editingProfile, setEditingProfile] = useState<UserProfile | null>(null);
+    const [viewingReports, setViewingReports] = useState<UserProfile | null>(null);
+    const [customTag, setCustomTag] = useState('');
+
+    const PRESET_TAGS = ['家人', '朋友', '同事', '客户', '自己'];
+
+    const handleSaveEdit = () => {
+        if (!editingProfile) return;
+        const updatedList = updateArchive(editingProfile);
+        setArchives(updatedList);
+        setEditingProfile(null);
+    };
+
+    const toggleTag = (tag: string) => {
+        if (!editingProfile) return;
+        const currentTags = editingProfile.tags || [];
+        const newTags = currentTags.includes(tag) ? currentTags.filter(t => t !== tag) : [...currentTags, tag];
+        setEditingProfile({ ...editingProfile, tags: newTags });
+    };
+
+    const addCustomTag = () => {
+        if (!customTag.trim() || !editingProfile) return;
+        const currentTags = editingProfile.tags || [];
+        if (!currentTags.includes(customTag.trim())) {
+            setEditingProfile({ ...editingProfile, tags: [...currentTags, customTag.trim()] });
+        }
+        setCustomTag('');
+    };
+
+    return (
+        <div className="h-full flex flex-col bg-[#f5f5f4] p-5 overflow-y-auto pb-24 space-y-4">
+            {archives.map(p => (
+                <div key={p.id} className="bg-white border border-stone-200 rounded-3xl p-5 shadow-sm space-y-4">
+                    <div className="flex justify-between items-start gap-4">
+                        <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                                <h3 className="font-black text-stone-950 text-lg">{p.name}</h3>
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${p.gender==='male'?'bg-indigo-50 text-indigo-700':'bg-rose-50 text-rose-700'}`}>{p.gender==='male'?'乾':'坤'}</span>
+                            </div>
+                            <p className="text-[11px] text-stone-500 font-medium mb-2">{p.birthDate} {p.birthTime} {p.isSolarTime ? '(真太阳)' : ''}</p>
+                            <div className="flex flex-wrap gap-1.5">
+                                {p.tags && p.tags.length > 0 ? p.tags.map(t => (
+                                    <span key={t} className="text-[9px] px-2 py-0.5 rounded bg-stone-100 text-stone-600 font-bold border border-stone-200">#{t}</span>
+                                )) : <span className="text-[9px] text-stone-300 italic">未分类</span>}
+                            </div>
+                        </div>
+                        <div className="flex gap-2">
+                           <button onClick={()=>onSelect(p)} className="p-2.5 bg-stone-950 text-white rounded-xl shadow-md active:scale-95 transition-transform"><Compass size={18}/></button>
+                           <button onClick={()=>setEditingProfile(p)} className="p-2.5 bg-white border border-stone-200 text-stone-600 rounded-xl hover:bg-stone-50"><Edit2 size={18}/></button>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 pt-2 border-t border-stone-50">
+                        <button onClick={()=>setViewingReports(p)} className="py-2.5 bg-stone-50 text-stone-600 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5 hover:bg-stone-100 transition-colors"><FileText size={14}/> 解盘记录 ({p.aiReports?.length || 0})</button>
+                        <button onClick={()=>{if(window.confirm("确定删除此档案吗？此操作不可恢复。")) setArchives(deleteArchive(p.id));}} className="py-2.5 bg-rose-50 text-rose-600 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5 hover:bg-rose-100 transition-colors border border-rose-100"><Trash2 size={14}/> 删除档案</button>
+                    </div>
+                </div>
+            ))}
+            {editingProfile && (
+                <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm" onClick={() => setEditingProfile(null)} />
+                    <div className="relative bg-white w-full max-w-sm rounded-[2rem] shadow-2xl overflow-hidden animate-slide-up">
+                        <div className="p-5 border-b border-stone-100 bg-stone-50 flex justify-between items-center"><h3 className="font-black text-stone-900">编辑档案</h3><button onClick={()=>setEditingProfile(null)}><X size={20} className="text-stone-400"/></button></div>
+                        <div className="p-6 space-y-6">
+                            <div className="space-y-2"><label className="text-xs font-black text-stone-500 uppercase tracking-wider">姓名</label><input type="text" value={editingProfile.name} onChange={e => setEditingProfile({...editingProfile, name: e.target.value})} className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-3 outline-none font-bold text-stone-900 focus:border-stone-400"/></div>
+                            <div className="space-y-3"><label className="text-xs font-black text-stone-500 uppercase tracking-wider flex items-center gap-2"><Tag size={14}/> 标签管理</label><div className="flex flex-wrap gap-2">{PRESET_TAGS.map(tag => (<button key={tag} onClick={() => toggleTag(tag)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${editingProfile.tags?.includes(tag) ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-stone-200 text-stone-500 hover:border-indigo-200'}`}>{tag}</button>))}</div><div className="flex gap-2"><input type="text" value={customTag} onChange={e => setCustomTag(e.target.value)} placeholder="添加自定义标签..." className="flex-1 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-stone-400"/><button onClick={addCustomTag} className="p-2 bg-stone-200 rounded-lg text-stone-600 hover:bg-stone-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-1.5 pt-2">{editingProfile.tags?.filter(t => !PRESET_TAGS.includes(t)).map(t => (<div key={t} className="flex items-center gap-1 bg-amber-50 text-amber-700 px-2 py-1 rounded text-[10px] font-bold border border-amber-100">#{t}<button onClick={() => toggleTag(t)}><X size={10}/></button></div>))}</div></div>
+                            <button onClick={handleSaveEdit} className="w-full py-3 bg-stone-900 text-white rounded-xl font-bold shadow-lg mt-2 active:scale-95 transition-transform">保存修改</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {viewingReports && (
+                <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-md" onClick={() => setViewingReports(null)} />
+                    <div className="relative bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl flex flex-col max-h-[85vh] animate-slide-up overflow-hidden">
+                        <div className="p-5 border-b border-stone-100 flex justify-between items-center bg-stone-50/50"><h3 className="font-black text-stone-950">{viewingReports.name} 的报告库</h3><X onClick={() => setViewingReports(null)} size={20} className="text-stone-400 cursor-pointer"/></div>
+                        <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar">
+                            {viewingReports.aiReports?.length ? viewingReports.aiReports.map(r => (
+                                <div key={r.id} className="bg-white border border-stone-200 rounded-2xl p-4 shadow-sm space-y-2">
+                                    <div className="flex justify-between items-center"><span className="text-[10px] font-black px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100">{r.type==='ziwei'?'紫微':'八字'}</span><span className="text-[9px] text-stone-400">{new Date(r.date).toLocaleString()}</span></div>
+                                    <div className="text-[12px] text-stone-700 leading-relaxed whitespace-pre-wrap font-medium">{typeof r.content === 'string' ? r.content : JSON.stringify(r.content, null, 2)}</div>
+                                    <button onClick={()=>{navigator.clipboard.writeText(String(r.content)); alert('已复制');}} className="w-full py-2 bg-stone-100 text-stone-700 rounded-xl text-[10px] font-bold">复制全文</button>
+                                </div>
+                            )) : <div className="text-center py-20 text-stone-300 italic">暂无记录</div>}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// --- 8. 主 App 组件 ---
 const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<AppTab>(AppTab.HOME);
   const [currentProfile, setCurrentProfile] = useState<UserProfile | null>(null);
@@ -597,48 +637,6 @@ const App: React.FC = () => {
       {modalData && <DetailModal data={modalData} chart={baziChart} onClose={() => setModalData(null)} />}
     </div>
   );
-};
-
-const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelect: any }> = ({ archives, setArchives, onSelect }) => {
-    const [viewingReports, setViewingReports] = useState<UserProfile | null>(null);
-    return (
-        <div className="h-full flex flex-col bg-[#f5f5f4] p-5 overflow-y-auto pb-24 space-y-4">
-            {archives.map(p => (
-                <div key={p.id} className="bg-white border border-stone-200 rounded-3xl p-5 shadow-sm space-y-4">
-                    <div className="flex justify-between items-center">
-                        <div><h3 className="font-black text-stone-950">{p.name}</h3><p className="text-[10px] text-stone-500">{p.birthDate} {p.birthTime}</p></div>
-                        <div className="flex gap-2">
-                           <button onClick={()=>onSelect(p)} className="p-2 bg-stone-950 text-white rounded-xl"><Compass size={16}/></button>
-                           <button onClick={()=>{if(window.confirm("确定删除吗？")) setArchives(deleteArchive(p.id));}} className="p-2 text-rose-600 bg-rose-50 rounded-xl border border-rose-100"><Trash2 size={16}/></button>
-                        </div>
-                    </div>
-                    <button onClick={()=>setViewingReports(p)} className="w-full py-2 bg-stone-50 text-stone-600 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5"><FileText size={14}/> 查看解盘记录 ({p.aiReports?.length || 0})</button>
-                </div>
-            ))}
-            {viewingReports && (
-                <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-md" onClick={() => setViewingReports(null)} />
-                    <div className="relative bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl flex flex-col max-h-[85vh] animate-slide-up overflow-hidden">
-                        <div className="p-5 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">
-                            <h3 className="font-black text-stone-950">{viewingReports.name} 的报告库</h3>
-                            <X onClick={() => setViewingReports(null)} size={20} className="text-stone-400 cursor-pointer"/>
-                        </div>
-                        <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar">
-                            {viewingReports.aiReports?.length ? viewingReports.aiReports.map(r => (
-                                <div key={r.id} className="bg-white border border-stone-200 rounded-2xl p-4 shadow-sm space-y-2">
-                                    <div className="flex justify-between items-center"><span className="text-[10px] font-black px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100">{r.type==='ziwei'?'紫微':'八字'}</span><span className="text-[9px] text-stone-400">{new Date(r.date).toLocaleString()}</span></div>
-                                    <div className="text-[12px] text-stone-700 leading-relaxed whitespace-pre-wrap font-medium">
-                                      {typeof r.content === 'string' ? r.content : JSON.stringify(r.content, null, 2)}
-                                    </div>
-                                    <button onClick={()=>{navigator.clipboard.writeText(String(r.content)); alert('已复制');}} className="w-full py-2 bg-stone-100 text-stone-700 rounded-xl text-[10px] font-bold">复制全文</button>
-                                </div>
-                            )) : <div className="text-center py-20 text-stone-300 italic">暂无记录</div>}
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
 };
 
 export default App;

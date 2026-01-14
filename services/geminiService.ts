@@ -60,7 +60,7 @@ export const analyzeBaziStructured = async (
 忌神：${chart.balance.jiShen.join('、')}
 `;
 
-  const systemPrompt = `你是一位精通子平八字与现代财富管理的顾问。
+  const systemPrompt = `你是一位精通子平八字命理分析与现代财富管理的顾问。
 请基于提供的命盘信息，量身定制一份跨市场（美股、港股、A股）财富与投资策略报告。
 输出必须严格遵循以下 JSON 格式。
 

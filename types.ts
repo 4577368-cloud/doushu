@@ -1,54 +1,22 @@
 export type Gender = 'male' | 'female';
 
-export interface AiReportRecord {
-    id: string;
-    date: number;
-    content: string;
-    type?: 'bazi' | 'ziwei'; // 新增：区分报告类型
-}
-
-export interface UserProfile {
-  id: string;
-  name: string;
-  birthDate: string; 
-  birthTime: string; 
-  gender: Gender;
-  isSolarTime: boolean;
-  province?: string;
-  city?: string;
-  longitude?: number;
-  createdAt: number;
-  avatar?: string;
-  tags?: string[];
-  aiReports?: AiReportRecord[];
-  lastUpdated?: number;
-}
-
-// 基础排盘接口保持不变
 export interface GanZhi {
   gan: string;
   zhi: string;
   ganElement: string;
   zhiElement: string;
-  hiddenStems: HiddenStem[];
+  hiddenStems: { stem: string; type: string; powerPercentage: number; shiShen: string }[];
   naYin: string;
-  shiShenGan: string;
-  lifeStage: string;
-  selfLifeStage: string;
-}
-
-export interface HiddenStem {
-  stem: string;
-  type: string;
-  powerPercentage: number;
-  shiShen: string;
+  shiShenGan: string;     // 天干十神
+  lifeStage: string;      // 十二长生
+  selfLifeStage?: string; // 自坐长生
 }
 
 export interface Pillar {
   name: string;
   ganZhi: GanZhi;
-  kongWang: boolean;
   shenSha: string[];
+  kongWang?: boolean;
 }
 
 export interface LuckPillar {
@@ -66,11 +34,7 @@ export interface XiaoYun {
 }
 
 export interface BalanceAnalysis {
-  dayMasterStrength: {
-    score: number;
-    level: string;
-    description: string;
-  };
+  dayMasterStrength: { score: number; level: string; description: string };
   yongShen: string[];
   xiShen: string[];
   jiShen: string[];
@@ -80,33 +44,11 @@ export interface BalanceAnalysis {
 
 export interface PatternAnalysis {
   name: string;
-  type: string;
+  type: string; // 正格/外格
   isEstablished: boolean;
-  level: string;
-  keyFactors: {
-    beneficial: string[];
-    destructive: string[];
-  };
+  level: string; // 上/中/下等
+  keyFactors: { beneficial: string[]; destructive: string[] };
   description: string;
-}
-
-export interface AnnualFortune {
-  year: number;
-  ganZhi: GanZhi;
-  rating: string;
-  reasons: string[];
-  score: number;
-}
-
-export interface PillarInterpretation {
-  pillarName: string;
-  coreSymbolism: string;
-  hiddenDynamics: string;
-  naYinInfluence: string;
-  lifeStageEffect: string;
-  shenShaEffects: string[];
-  roleInDestiny: string;
-  integratedSummary: string;
 }
 
 export interface BaziChart {
@@ -120,28 +62,51 @@ export interface BaziChart {
     day: Pillar;
     hour: Pillar;
   };
-  mingGong: string; 
+  mingGong: string;
   shenGong: string;
-  taiYuan: string; 
-  taiXi: string; 
+  taiYuan: string;
+  taiXi: string;
   wuxingCounts: Record<string, number>;
   luckPillars: LuckPillar[];
   xiaoYun: XiaoYun[];
   startLuckText: string;
+  godStrength: any[]; // 暂简略
+  shenShaInteractions: any[];
   balance: BalanceAnalysis;
   pattern: PatternAnalysis;
   originalTime?: string;
-  solarTime?: string;
-  solarTimeData?: { longitude: number; city: string };
   mangPai?: string[];
-  godStrength?: any[];
-  shenShaInteractions?: any[];
+}
+
+// 🔥 更新：User Profile 增加 tags 字段
+export interface UserProfile {
+  id: string;
+  name: string;
+  gender: Gender;
+  birthDate: string; // YYYY-MM-DD
+  birthTime: string; // HH:mm
+  isSolarTime: boolean;
+  province?: string;
+  city?: string;
+  longitude?: number;
+  createdAt: number;
+  avatar?: string;
+  // 新增标签字段
+  tags?: string[]; 
+  aiReports?: { id: string; date: number; content: string; type: 'bazi' | 'ziwei' }[];
+}
+
+export interface ModalData {
+  title: string;
+  pillarName: string;
+  ganZhi: GanZhi;
+  shenSha: string[];
 }
 
 export enum AppTab {
   HOME = 'home',
   CHART = 'chart',
-  ZIWEI = 'ziwei', // 新增：紫微入口
+  ZIWEI = 'ziwei',
   ARCHIVE = 'archive'
 }
 
@@ -151,30 +116,39 @@ export enum ChartSubTab {
   ANALYSIS = 'analysis'
 }
 
-export interface ModalData {
-  title: string;
-  pillarName: string;
+export interface AnnualFortune {
+  year: number;
   ganZhi: GanZhi;
-  shenSha: string[];
-  kongWang?: boolean;
+  rating: '吉' | '凶' | '平';
+  reasons: string[];
+  score: number;
 }
 
-export interface InterpretationResult {
-    title: string;
-    content: string;
+export interface BaziReport {
+  overall: string;
+  career: string;
+  wealth: string;
+  love: string;
+  health: string;
+  advice: string;
+  luckyElements: string[];
+  copyText: string;
+  sections: { id: string; title: string; content: string }[];
 }
 
-export interface TrendActivation {
-    name: string;
-    effect: string;
-}
-
-export interface GodStrength {
-    god: string;
-    strength: number;
-}
-
-export interface ShenShaInteraction {
-    name: string;
-    effect: string;
+// 占位接口
+export interface HiddenStem {}
+export interface GodStrength {}
+export interface TrendActivation {}
+export interface ShenShaInteraction {}
+export interface InterpretationResult {}
+export interface PillarInterpretation {
+    pillarName: string;
+    coreSymbolism: string;
+    hiddenDynamics: string;
+    naYinInfluence: string;
+    lifeStageEffect: string;
+    shenShaEffects: string[];
+    roleInDestiny: string;
+    integratedSummary: string;
 }
