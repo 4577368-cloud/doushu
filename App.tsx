@@ -1,16 +1,17 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { BottomNav, Header } from './components/Layout';
 import { AppTab, ChartSubTab, UserProfile, BaziChart, Gender, ModalData, GanZhi, Pillar, BaziReport, BalanceAnalysis } from './types';
 import { calculateBazi, interpretAnnualPillar, interpretLuckPillar, interpretYearPillar, interpretMonthPillar, interpretDayPillar, interpretHourPillar } from './services/baziService';
 import { analyzeBaziStructured } from './services/geminiService';
+import { sendChatMessage, ChatMessage } from './services/chatService';
 import { getArchives, saveArchive, deleteArchive, saveAiReportToArchive, updateArchive } from './services/storageService';
-import { Activity, BrainCircuit, RotateCcw, Info, X, Sparkles, Sun, Trash2, MapPin, History, Eye, EyeOff, Compass, Calendar, Clock, Check, BarChart3, CheckCircle, FileText, ClipboardCopy, Maximize2, ChevronRight, User, Edit2, Plus, Tag } from 'lucide-react';
+import { Activity, BrainCircuit, RotateCcw, Info, X, Sparkles, Sun, Trash2, MapPin, History, Eye, EyeOff, Compass, Calendar, Clock, Check, BarChart3, CheckCircle, FileText, ClipboardCopy, Maximize2, ChevronRight, User, Edit2, Plus, Tag, ShieldCheck, Crown, Send, MessageCircle, HelpCircle } from 'lucide-react';
 import { CHINA_LOCATIONS, FIVE_ELEMENTS, SHEN_SHA_DESCRIPTIONS } from './services/constants';
 
 import ZiweiView from './components/ZiweiView';
 import { BaziAnalysisView } from './components/BaziAnalysisView';
 
-// --- 1. 基础 UI 组件 ---
+// --- 基础工具组件 ---
 const ElementText: React.FC<{ text: string; className?: string; showFiveElement?: boolean }> = ({ text, className = '', showFiveElement = false }) => {
   if (!text) return null;
   const element = FIVE_ELEMENTS[text] || text;
@@ -38,7 +39,15 @@ const ShenShaBadge: React.FC<{ name: string }> = ({ name }) => {
   return <span className={`text-[8px] px-1 py-0.5 rounded border whitespace-nowrap leading-none ${style}`}>{name.length > 2 ? name.slice(0, 2) : name}</span>;
 };
 
-// --- 智能排版渲染器 ---
+// 星运颜色辅助函数
+const getLifeStageStyle = (stage: string) => {
+  if (['帝旺', '临官'].includes(stage)) return 'text-rose-600 bg-rose-50 border border-rose-100';
+  if (['长生', '冠带'].includes(stage)) return 'text-amber-600 bg-amber-50 border border-amber-100';
+  if (['胎', '养'].includes(stage)) return 'text-emerald-600 bg-emerald-50 border border-emerald-100';
+  if (['沐浴'].includes(stage)) return 'text-pink-500 bg-pink-50 border border-pink-100';
+  return 'text-stone-400 bg-stone-50 border border-stone-100';
+};
+
 const SmartTextRenderer: React.FC<{ content: string }> = ({ content }) => {
   if (!content) return null;
   const lines = content.split('\n').filter(line => line.trim() !== '');
@@ -67,6 +76,173 @@ const SmartTextRenderer: React.FC<{ content: string }> = ({ content }) => {
       })}
     </div>
   );
+};
+
+// --- VIP 激活弹窗 ---
+const VipActivationModal: React.FC<{ onClose: () => void; onActivate: () => void }> = ({ onClose, onActivate }) => {
+    const [code, setCode] = useState('');
+    const [error, setError] = useState('');
+
+    const handleSubmit = () => {
+        if (code === '202612345') {
+            onActivate();
+            onClose();
+        } else {
+            setError('密钥无效，请核对后重试');
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[2500] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-stone-900/80 backdrop-blur-sm" onClick={onClose} />
+            <div className="relative bg-white w-full max-w-sm rounded-[2rem] shadow-2xl overflow-hidden animate-slide-up">
+                
+                {/* 1. 头部：黑金配色 + 醒目价格 */}
+                <div className="bg-gradient-to-br from-stone-900 via-stone-800 to-stone-900 p-6 text-center relative overflow-hidden">
+                    <div className="absolute -top-6 -right-6 opacity-10 rotate-12"><Crown size={140} color="white"/></div>
+                    <h3 className="text-amber-500/80 text-[10px] font-black tracking-[0.3em] uppercase mb-1 relative z-10">VIP Premium Access</h3>
+                    <div className="flex items-baseline justify-center gap-1 text-white relative z-10 my-1">
+                        <span className="text-base font-bold text-amber-500">¥</span>
+                        <span className="text-5xl font-black tracking-tighter text-amber-400 drop-shadow-sm">39.9</span>
+                        <span className="text-[10px] font-black bg-gradient-to-r from-amber-400 to-yellow-300 text-stone-900 px-2 py-0.5 rounded-full ml-1 shadow-sm transform -translate-y-4">永久解锁</span>
+                    </div>
+                    <p className="text-[10px] text-stone-500 relative z-10">
+                        <span className="line-through mr-2">原价 ¥299.0</span>
+                        <span>解锁 AI 深度对话 & 无限排盘</span>
+                    </p>
+                </div>
+                
+                <div className="p-6 space-y-6">
+                    {/* 2. 二维码区域 */}
+                    <div className="flex flex-col items-center gap-3">
+                        <div className="w-48 h-48 bg-white rounded-xl border border-stone-200 flex items-center justify-center relative overflow-hidden p-1 shadow-sm group">
+                            <div className="absolute inset-0 bg-amber-500/5 group-hover:bg-transparent transition-colors z-10 pointer-events-none"/>
+                            <img 
+                                src="https://imgus.tangbuy.com/static/images/2026-01-14/d3cfc3391f4b4049855b70428d881cc8-17683802616059959910686892450765.jpg" 
+                                alt="Payment QR" 
+                                className="w-full h-full object-contain" 
+                            />
+                        </div>
+                        <p className="text-[10px] text-stone-400 text-center max-w-[240px] leading-relaxed">
+                            请使用微信/支付宝扫码支付 <b className="text-stone-800">¥39.9</b><br/>
+                            支付成功后截图联系客服，获取您的专属密钥
+                        </p>
+                    </div>
+
+                    {/* 3. 密钥输入 */}
+                    <div className="space-y-2">
+                        <input 
+                            type="text" 
+                            value={code}
+                            onChange={(e) => { setCode(e.target.value); setError(''); }}
+                            placeholder="在此输入专属密钥激活"
+                            className="w-full bg-stone-50 border-2 border-stone-200 rounded-xl px-4 py-3 font-mono font-bold text-center text-sm focus:border-amber-400 focus:bg-white outline-none transition-all placeholder:font-sans placeholder:text-stone-300 text-stone-800"
+                        />
+                        {error && <p className="text-xs text-rose-500 text-center font-bold animate-pulse">{error}</p>}
+                    </div>
+
+                    {/* 4. 激活按钮 */}
+                    <button 
+                        onClick={handleSubmit}
+                        className="w-full py-4 bg-stone-900 text-white rounded-xl font-black text-sm shadow-xl active:scale-95 transition-transform flex items-center justify-center gap-2 hover:bg-stone-800"
+                    >
+                        <Sparkles size={16} className="text-amber-400" /> 立即激活永久 VIP
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- AI 聊天界面 ---
+const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
+    const [messages, setMessages] = useState<ChatMessage[]>([
+        { role: 'assistant', content: `尊贵的 VIP 用户，您好！\n我是您的专属命理师。我已经深度研读了您的命盘（${chart.dayMaster}日主，${chart.pattern.name}），请问您今天想了解哪方面的运势？` }
+    ]);
+    const [input, setInput] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [suggestions, setSuggestions] = useState<string[]>(['我的事业运如何？', '最近财运怎么样？', '感情方面有桃花吗？']);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+
+    useEffect(() => { scrollToBottom(); }, [messages, loading]);
+
+    const handleSend = async (contentOverride?: string) => {
+        const msgContent = contentOverride || input;
+        if (!msgContent.trim() || loading) return;
+        
+        const userMsg: ChatMessage = { role: 'user', content: msgContent };
+        setMessages(prev => [...prev, userMsg]);
+        setInput('');
+        setSuggestions([]);
+        setLoading(true);
+
+        try {
+            const contextMessages = [...messages, userMsg].map(m => ({ role: m.role, content: m.content })).slice(-10);
+            const rawReply = await sendChatMessage(contextMessages, chart);
+            const [replyText, suggestionStr] = rawReply.split('|||');
+            setMessages(prev => [...prev, { role: 'assistant', content: replyText.trim() }]);
+            if (suggestionStr) {
+                const newSuggestions = suggestionStr.split(';').map(s => s.trim()).filter(s => s.length > 0);
+                setSuggestions(newSuggestions.slice(0, 3));
+            }
+        } catch (error) {
+            setMessages(prev => [...prev, { role: 'assistant', content: '抱歉，连接天机（服务器）时出现波动，请稍后再试。' }]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="flex flex-col h-full bg-[#f8f8f7]">
+            <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-6">
+                {messages.map((msg, idx) => (
+                    <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        {msg.role === 'assistant' && (
+                            <div className="w-8 h-8 rounded-full bg-stone-900 text-amber-400 flex items-center justify-center shrink-0 mr-2 mt-1 shadow-sm border border-stone-800">
+                                <Crown size={14} fill="currentColor" />
+                            </div>
+                        )}
+                        <div className={`max-w-[85%] p-4 rounded-2xl text-[14px] leading-relaxed shadow-sm ${
+                            msg.role === 'user' 
+                                ? 'bg-indigo-600 text-white rounded-tr-none shadow-indigo-200'
+                                : 'bg-white text-stone-800 rounded-tl-none border border-stone-100 shadow-stone-200'
+                        }`}>
+                            <SmartTextRenderer content={msg.content} />
+                        </div>
+                    </div>
+                ))}
+                {loading && (
+                    <div className="flex justify-start">
+                        <div className="w-8 h-8 rounded-full bg-stone-900 text-amber-400 flex items-center justify-center shrink-0 mr-2 mt-1"><Crown size={14} fill="currentColor" /></div>
+                        <div className="bg-white p-4 rounded-2xl rounded-tl-none border border-stone-100 shadow-sm flex gap-1.5 items-center">
+                            <div className="w-1.5 h-1.5 bg-stone-400 rounded-full animate-bounce" style={{animationDelay:'0ms'}}/>
+                            <div className="w-1.5 h-1.5 bg-stone-400 rounded-full animate-bounce" style={{animationDelay:'150ms'}}/>
+                            <div className="w-1.5 h-1.5 bg-stone-400 rounded-full animate-bounce" style={{animationDelay:'300ms'}}/>
+                        </div>
+                    </div>
+                )}
+                <div ref={messagesEndRef} />
+            </div>
+            
+            <div className="p-3 bg-white border-t border-stone-200 shadow-[0_-4px_20px_rgba(0,0,0,0.02)]">
+                {suggestions.length > 0 && !loading && (
+                    <div className="flex gap-2 overflow-x-auto no-scrollbar mb-3 px-1">
+                        {suggestions.map((s, i) => (
+                            <button key={i} onClick={() => handleSend(s)} className="whitespace-nowrap px-3 py-1.5 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-full border border-indigo-100 hover:bg-indigo-100 transition-colors flex items-center gap-1"><HelpCircle size={10} /> {s}</button>
+                        ))}
+                    </div>
+                )}
+                <div className="flex gap-2 items-end">
+                    <textarea value={input} onChange={e => setInput(e.target.value)} placeholder="请输入您的问题..." className="flex-1 bg-stone-100 border-transparent focus:bg-white focus:border-stone-300 rounded-2xl px-4 py-3 text-sm outline-none resize-none max-h-24 min-h-[48px] transition-all" rows={1} onKeyDown={e => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}/>
+                    <button onClick={() => handleSend()} disabled={loading || !input.trim()} className={`p-3 rounded-full h-12 w-12 flex items-center justify-center transition-all ${!input.trim() ? 'bg-stone-200 text-stone-400' : 'bg-stone-900 text-amber-400 shadow-lg active:scale-95 hover:bg-stone-800'}`}><Send size={20} className={input.trim() ? "ml-0.5" : ""} /></button>
+                </div>
+            </div>
+        </div>
+    );
 };
 
 // --- 历史报告详情模态框 ---
@@ -99,7 +275,7 @@ const ReportHistoryModal: React.FC<{ report: any; onClose: () => void }> = ({ re
     );
 };
 
-// --- 2. 详情弹窗组件 ---
+// --- 详情弹窗组件 ---
 const DetailModal: React.FC<{ data: ModalData; chart: BaziChart | null; onClose: () => void }> = ({ data, chart, onClose }) => {
   if (!chart) return null;
   let interp;
@@ -165,7 +341,7 @@ const DetailModal: React.FC<{ data: ModalData; chart: BaziChart | null; onClose:
   );
 };
 
-// --- 3. 五行强弱面板 ---
+// --- 五行强弱面板 ---
 const BalancePanel: React.FC<{ balance: BalanceAnalysis; wuxing: Record<string, number>; dm: string }> = ({ balance, wuxing, dm }) => {
   const elements = ['木', '火', '土', '金', '水'];
   return (
@@ -187,7 +363,7 @@ const BalancePanel: React.FC<{ balance: BalanceAnalysis; wuxing: Record<string, 
   );
 };
 
-// --- 4. 八字主网格 ---
+// --- 🔥 八字四柱网格 (完整重构版) ---
 const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart, onOpenModal }) => {
   const pillars = [
     { key: 'year', label: '年柱', data: chart.pillars.year },
@@ -195,36 +371,92 @@ const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart
     { key: 'day', label: '日柱', data: chart.pillars.day },
     { key: 'hour', label: '时柱', data: chart.pillars.hour },
   ];
-  const rows = [
-    { label: '天干', render: (p: Pillar) => (
-      <div onClick={() => onOpenModal(p.name, p.ganZhi, p.name, p.shenSha)} className="relative w-full h-full flex flex-col items-center justify-center pt-2 cursor-pointer group hover:bg-black/5 transition-colors rounded-lg"><span className="absolute top-0.5 right-0.5 text-[8px] font-black text-indigo-600 scale-90">{p.name === '日柱' ? '日元' : p.ganZhi.shiShenGan}</span><ElementText text={p.ganZhi.gan} className="text-2xl font-bold font-serif" showFiveElement /></div>
-    )},
-    { label: '地支', render: (p: Pillar) => (
-      <div onClick={() => onOpenModal(p.name, p.ganZhi, p.name, p.shenSha)} className="flex flex-col items-center justify-center py-1 cursor-pointer hover:bg-black/5 transition-colors rounded-lg"><ElementText text={p.ganZhi.zhi} className="text-2xl font-bold font-serif" showFiveElement /></div>
-    )},
-    { label: '星运', render: (p: Pillar) => <span className="text-[10px] font-black text-stone-900">{p.ganZhi.lifeStage}</span> },
-    { label: '纳音', render: (p: Pillar) => <span className="text-[9px] text-stone-700 font-medium py-1 px-0.5 whitespace-nowrap">{p.ganZhi.naYin}</span> },
-    { label: '神煞', render: (p: Pillar) => (<div className="flex flex-wrap justify-center gap-0.5 w-full px-0.5 min-h-[40px] content-start pt-1">{p.shenSha.slice(0, 3).map((s, i) => <ShenShaBadge key={i} name={s} />)}</div>) }
-  ];
+
   return (
-    <div className="bg-white border border-stone-300 rounded-2xl overflow-hidden shadow-sm">
-      <div className="grid grid-cols-5 bg-stone-100 border-b border-stone-300 text-center text-[9px] font-bold text-stone-700 uppercase tracking-wider py-1.5">
-        <div className="border-r border-stone-300">项目</div>{pillars.map(p => <div key={p.key}>{p.label}</div>)}
+    <div className="bg-white border border-stone-300 rounded-3xl overflow-hidden shadow-sm mb-2">
+      {/* 表头 */}
+      <div className="grid grid-cols-5 bg-stone-100 border-b border-stone-300 text-center py-2 text-[10px] font-black text-stone-700 uppercase tracking-wider">
+        <div className="bg-stone-100 flex items-center justify-center">四柱</div>
+        {pillars.map(p => <div key={p.key}>{p.label}</div>)}
       </div>
-      {rows.map((row, idx) => (
-        <div key={idx} className={`grid grid-cols-5 border-b border-stone-200 last:border-0 text-center items-center ${idx % 2 === 0 ? 'bg-white' : 'bg-stone-50/30'}`}>
-          <div className="text-[9px] font-black text-stone-400 border-r border-stone-200 h-full flex items-center justify-center uppercase py-1">{row.label}</div>
-          {pillars.map(p => <div key={p.key} className="flex flex-col items-center h-full justify-center">{row.render(p.data)}</div>)}
-        </div>
-      ))}
+
+      {/* 1. 天干 */}
+      <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[64px]">
+        <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">天干</div>
+        {pillars.map(p => (
+          <div key={p.key} onClick={() => onOpenModal(p.label, p.data.ganZhi, p.data.name, p.data.shenSha)} className="relative w-full flex flex-col items-center justify-center py-2 cursor-pointer hover:bg-black/5 transition-colors border-l border-stone-200">
+            <span className="absolute top-1 right-1 text-[8px] font-black text-indigo-400 scale-90">{p.data.name === '日柱' ? '日元' : p.data.ganZhi.shiShenGan}</span>
+            <ElementText text={p.data.ganZhi.gan} className="text-2xl font-black font-serif" showFiveElement />
+          </div>
+        ))}
+      </div>
+
+      {/* 2. 地支 */}
+      <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[50px]">
+        <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">地支</div>
+        {pillars.map(p => (
+          <div key={p.key} onClick={() => onOpenModal(p.label, p.data.ganZhi, p.data.name, p.data.shenSha)} className="flex flex-col items-center justify-center py-2 cursor-pointer hover:bg-black/5 transition-colors border-l border-stone-200">
+            <ElementText text={p.data.ganZhi.zhi} className="text-2xl font-black font-serif" showFiveElement />
+          </div>
+        ))}
+      </div>
+
+      {/* 3. 藏干 */}
+      <div className="grid grid-cols-5 border-b border-stone-200 items-stretch">
+        <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">藏干</div>
+        {pillars.map(p => (
+          <div key={p.key} className="flex flex-col items-center justify-center py-2 gap-0.5 border-l border-stone-200">
+            {p.data.ganZhi.hiddenStems.slice(0, 2).map((h, idx) => (
+              <div key={idx} className="flex items-center gap-0.5 scale-90">
+                <span className={`text-[10px] ${h.type==='主气'?'font-black':'text-stone-500'}`}>{h.stem}</span>
+                <span className="text-[8px] text-stone-400">{h.shiShen}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      {/* 4. 星运 */}
+      <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[30px]">
+        <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">星运</div>
+        {pillars.map(p => {
+          const styleClass = getLifeStageStyle(p.data.ganZhi.lifeStage);
+          return (
+            <div key={p.key} className="flex items-center justify-center py-1.5 border-l border-stone-200">
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-md leading-none ${styleClass}`}>{p.data.ganZhi.lifeStage}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 5. 神煞 */}
+      <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[40px]">
+        <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">神煞</div>
+        {pillars.map(p => (
+          <div key={p.key} onClick={() => onOpenModal(p.label, p.data.ganZhi, p.data.name, p.data.shenSha)} className="flex flex-col items-center justify-start pt-2 px-0.5 gap-1 cursor-pointer hover:bg-black/5 transition-colors border-l border-stone-200">
+            {p.data.shenSha.slice(0, 2).map((s, idx) => <ShenShaBadge key={idx} name={s} />)}
+          </div>
+        ))}
+      </div>
+
+      {/* 6. 纳音 */}
+      <div className="grid grid-cols-5 items-stretch min-h-[30px]">
+        <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">纳音</div>
+        {pillars.map(p => (
+          <div key={p.key} className="flex items-center justify-center py-1.5 border-l border-stone-200">
+            <span className="text-[10px] text-stone-500 font-medium scale-95 whitespace-nowrap">{p.data.ganZhi.naYin}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
 
 // --- 5. 综合图表视图组件 ---
-const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowModal: any; onSaveReport: any; onAiAnalysis: any; loadingAi: boolean; aiReport: BaziReport | null }> = ({ profile, chart, onShowModal, onSaveReport, onAiAnalysis, loadingAi, aiReport }) => {
-  const [activeSubTab, setActiveSubTab] = useState<ChartSubTab>(ChartSubTab.BASIC);
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('ai_api_key') || '');
+const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowModal: any; onSaveReport: any; onAiAnalysis: any; loadingAi: boolean; aiReport: BaziReport | null; isVip: boolean }> = ({ profile, chart, onShowModal, onSaveReport, onAiAnalysis, loadingAi, aiReport, isVip }) => {
+  // 🔥 修改默认值为 'detail' (流年大运)
+  const [activeSubTab, setActiveSubTab] = useState<ChartSubTab>(ChartSubTab.DETAIL);
+  const [apiKey, setApiKey] = useState(() => sessionStorage.getItem('ai_api_key') || '');
   const [showApiKey, setShowApiKey] = useState(false);
   const [archives, setArchives] = useState<UserProfile[]>([]);
   const [selectedHistoryReport, setSelectedHistoryReport] = useState<any | null>(null);
@@ -245,14 +477,31 @@ const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowMo
 
   const openDetailedModal = (title: string, gz: GanZhi, name: string, ss: string[]) => onShowModal({ title, pillarName: name, ganZhi: gz, shenSha: ss });
 
+  const tabs = [
+      { id: ChartSubTab.DETAIL, label: '流年大运' },
+      { id: ChartSubTab.BASIC, label: '八字命盘' },
+      { id: ChartSubTab.ANALYSIS, label: '大师解盘' }
+  ];
+
+  if (isVip) {
+      tabs.push({ id: ChartSubTab.CHAT, label: 'AI 对话' });
+  }
+
   return (
     <div className="flex flex-col h-full bg-white">
       <div className="flex border-b border-stone-200 bg-white shadow-sm overflow-x-auto no-scrollbar">
-        {[{id:ChartSubTab.BASIC,label:'八字命盘'},{id:ChartSubTab.DETAIL,label:'流年大运'},{id:ChartSubTab.ANALYSIS,label:'大师解盘'}].map(tab => (
-           <button key={tab.id} onClick={() => setActiveSubTab(tab.id as ChartSubTab)} className={`flex-1 min-w-[80px] py-3 text-[11px] font-black border-b-2 transition-all ${activeSubTab === tab.id ? 'border-stone-950 text-stone-950' : 'border-transparent text-stone-500'}`}>{tab.label}</button>
+        {tabs.map(tab => (
+           <button key={tab.id} onClick={() => setActiveSubTab(tab.id as ChartSubTab)} className={`flex-1 min-w-[80px] py-3 text-[11px] font-black border-b-2 transition-all ${activeSubTab === tab.id ? 'border-stone-950 text-stone-950' : 'border-transparent text-stone-500'} ${tab.id === ChartSubTab.CHAT ? 'text-indigo-600' : ''}`}>
+               {tab.id === ChartSubTab.CHAT ? <span className="flex items-center justify-center gap-1"><Sparkles size={12}/> {tab.label}</span> : tab.label}
+           </button>
         ))}
       </div>
-      <div className="flex-1 overflow-y-auto bg-[#f9f9f8] p-4 pb-24">
+      <div className="flex-1 overflow-y-auto bg-[#f9f9f8] p-4 pb-24" style={activeSubTab === ChartSubTab.CHAT ? { padding: 0 } : {}}>
+         
+         {activeSubTab === ChartSubTab.DETAIL && (
+             <div className="animate-fade-in"><BaziAnalysisView chart={chart} onShowModal={openDetailedModal} /></div>
+         )}
+
          {activeSubTab === ChartSubTab.BASIC && (
             <div className="space-y-4 animate-fade-in">
                 <div className="bg-white border border-stone-300 rounded-2xl overflow-hidden shadow-sm">
@@ -266,24 +515,32 @@ const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowMo
                         <div className="bg-amber-50/50 p-2 rounded-xl border border-amber-200 text-amber-950 font-black text-center text-[11px] tracking-wide">{chart.startLuckText}</div>
                     </div>
                 </div>
+                {/* 升级后的网格 */}
                 <BaziChartGrid chart={chart} onOpenModal={openDetailedModal} />
                 <BalancePanel balance={chart.balance} wuxing={chart.wuxingCounts} dm={chart.dayMaster} />
             </div>
          )}
          
-         {activeSubTab === ChartSubTab.DETAIL && (
-             <div className="animate-fade-in"><BaziAnalysisView chart={chart} onShowModal={openDetailedModal} /></div>
-         )}
-         
          {activeSubTab === ChartSubTab.ANALYSIS && (
             <div className="space-y-6 animate-fade-in">
                 <div className="bg-white border border-stone-300 p-5 rounded-2xl shadow-sm">
-                    <div className="relative mb-4">
-                        <input type={showApiKey?"text":"password"} value={apiKey} onChange={e => {setApiKey(e.target.value); localStorage.setItem('ai_api_key', e.target.value);}} placeholder="填入 API Key" className="w-full bg-stone-50 border border-stone-300 p-3 rounded-xl text-sm font-sans focus:border-stone-950 outline-none shadow-inner font-black text-stone-950"/>
-                        <button onClick={()=>setShowApiKey(!showApiKey)} className="absolute right-3 top-3 text-stone-400">{showApiKey?<EyeOff size={18}/>:<Eye size={18}/>}</button>
-                    </div>
-                    <button onClick={onAiAnalysis} disabled={loadingAi || !apiKey} className={`w-full py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all ${apiKey ? 'bg-stone-950 text-white active:scale-95 shadow-lg' : 'bg-stone-100 text-stone-400'}`}>
-                      {loadingAi ? <Activity className="animate-spin" size={20}/> : <BrainCircuit size={20}/>} {loadingAi ? '解盘中，请稍候...' : '为当前命盘生成报告'}
+                    {isVip ? (
+                        <div className="mb-4 bg-gradient-to-r from-stone-900 to-stone-700 text-amber-400 p-4 rounded-xl flex items-center justify-between shadow-lg">
+                            <div className="flex items-center gap-2">
+                                <Crown size={20} fill="currentColor" />
+                                <span className="text-xs font-black tracking-wider">VIP 尊享通道已激活</span>
+                            </div>
+                            <span className="text-[10px] bg-white/10 px-2 py-1 rounded text-white">免 Key 无限畅享</span>
+                        </div>
+                    ) : (
+                        <div className="relative mb-4">
+                            {!apiKey && <div className="mb-2 text-[10px] text-stone-400 flex items-center gap-1"><ShieldCheck size={12}/> 未检测到 Key，将尝试使用公共代理</div>}
+                            <input type={showApiKey?"text":"password"} value={apiKey} onChange={e => {setApiKey(e.target.value); sessionStorage.setItem('ai_api_key', e.target.value);}} placeholder="填入 API Key (VIP用户无需填写)" className="w-full bg-stone-50 border border-stone-300 p-3 rounded-xl text-sm font-sans focus:border-stone-950 outline-none shadow-inner font-black text-stone-950"/>
+                            <button onClick={()=>setShowApiKey(!showApiKey)} className="absolute right-3 top-9 text-stone-400">{showApiKey?<EyeOff size={18}/>:<Eye size={18}/>}</button>
+                        </div>
+                    )}
+                    <button onClick={onAiAnalysis} disabled={loadingAi} className={`w-full py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all ${loadingAi ? 'bg-stone-100 text-stone-400' : 'bg-stone-950 text-white active:scale-95 shadow-lg'}`}>
+                      {loadingAi ? <Activity className="animate-spin" size={20}/> : <BrainCircuit size={20}/>} {loadingAi ? '正在深度推演...' : '生成大师解盘报告'}
                     </button>
                  </div>
                  {aiReport && (
@@ -320,6 +577,10 @@ const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowMo
                      ) : <div className="text-center py-10 text-stone-300 text-xs italic bg-stone-50 rounded-2xl border border-stone-100 border-dashed">暂无历史生成记录</div>}
                  </div>
             </div>
+         )}
+
+         {activeSubTab === ChartSubTab.CHAT && isVip && (
+             <div className="h-full animate-fade-in"><AiChatView chart={chart} /></div>
          )}
       </div>
       {selectedHistoryReport && <ReportHistoryModal report={selectedHistoryReport} onClose={() => setSelectedHistoryReport(null)} />}
@@ -489,7 +750,7 @@ const HomeView: React.FC<{ onGenerate: (profile: UserProfile) => void; archives:
 };
 
 // --- 7. 档案视图组件 ---
-const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelect: any }> = ({ archives, setArchives, onSelect }) => {
+const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelect: any; isVip: boolean; onVipClick: () => void }> = ({ archives, setArchives, onSelect, isVip, onVipClick }) => {
     const [editingProfile, setEditingProfile] = useState<UserProfile | null>(null);
     const [viewingReports, setViewingReports] = useState<UserProfile | null>(null);
     const [customTag, setCustomTag] = useState('');
@@ -521,6 +782,23 @@ const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelec
 
     return (
         <div className="h-full flex flex-col bg-[#f5f5f4] p-5 overflow-y-auto pb-24 space-y-4">
+            
+            {/* VIP 购买卡片 (仅非 VIP 显示) */}
+            {!isVip && (
+                <div onClick={onVipClick} className="bg-gradient-to-r from-stone-900 to-stone-700 rounded-3xl p-5 shadow-lg relative overflow-hidden cursor-pointer group hover:scale-[1.02] transition-transform">
+                    <div className="absolute top-0 right-0 p-4 opacity-10"><Crown size={80} /></div>
+                    <div className="relative z-10 flex items-center justify-between">
+                        <div>
+                            <h3 className="text-lg font-black text-amber-400 mb-1">升级 VIP 尊享版</h3>
+                            <p className="text-xs text-stone-300 font-medium">解锁 AI 深度对话 · 免 Key 无限畅享</p>
+                        </div>
+                        <div className="bg-amber-400 text-stone-900 px-3 py-2 rounded-xl text-xs font-black shadow-md group-hover:bg-amber-300 transition-colors">
+                            立即开通
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {archives.map(p => (
                 <div key={p.id} className="bg-white border border-stone-200 rounded-3xl p-5 shadow-sm space-y-4">
                     <div className="flex justify-between items-start gap-4">
@@ -564,7 +842,7 @@ const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelec
                 <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-md" onClick={() => setViewingReports(null)} />
                     <div className="relative bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl flex flex-col max-h-[85vh] animate-slide-up overflow-hidden">
-                        <div className="p-5 border-b border-stone-100 flex justify-between items-center bg-stone-50/50"><h3 className="font-black text-stone-950">{viewingReports.name} 的报告库</h3><X onClick={() => setViewingReports(null)} size={20} className="text-stone-400 cursor-pointer"/></div>
+                        <div className="p-5 border-b border-stone-100 flex justify-between items-center bg-stone-50/50"><h3 className="font-black text-stone-900">{viewingReports.name} 的报告库</h3><X onClick={() => setViewingReports(null)} size={20} className="text-stone-400 cursor-pointer"/></div>
                         <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar">
                             {viewingReports.aiReports?.length ? viewingReports.aiReports.map(r => (
                                 <div key={r.id} className="bg-white border border-stone-200 rounded-2xl p-4 shadow-sm space-y-2">
@@ -590,6 +868,10 @@ const App: React.FC = () => {
   const [archives, setArchives] = useState<UserProfile[]>([]);
   const [loadingAi, setLoadingAi] = useState(false);
   const [aiReport, setAiReport] = useState<BaziReport | null>(null);
+  
+  // VIP 状态
+  const [isVip, setIsVip] = useState(() => localStorage.getItem('is_vip_user') === 'true');
+  const [showVipModal, setShowVipModal] = useState(false);
 
   useEffect(() => { setArchives(getArchives()); }, []);
 
@@ -605,12 +887,18 @@ const App: React.FC = () => {
     } catch (e) { alert("排盘失败"); }
   };
 
+  const handleActivateVip = () => {
+      setIsVip(true);
+      localStorage.setItem('is_vip_user', 'true');
+      alert("VIP 激活成功！您已解锁 AI 对话功能和无限畅享特权。");
+  };
+
   const handleAiAnalysis = async () => {
-    const key = localStorage.getItem('ai_api_key');
-    if (!key || !baziChart) return;
+    const key = sessionStorage.getItem('ai_api_key');
+    
     setLoadingAi(true);
     try {
-      const result = await analyzeBaziStructured(baziChart, key);
+      const result = await analyzeBaziStructured(baziChart!, key || undefined);
       setAiReport(result);
       if (currentProfile) {
         const updated = saveAiReportToArchive(currentProfile.id, result.copyText, 'bazi');
@@ -628,13 +916,14 @@ const App: React.FC = () => {
       <Header title={currentTab === AppTab.HOME ? '玄枢命理' : currentProfile?.name || '排盘'} rightAction={currentTab !== AppTab.HOME && <button onClick={()=>{setCurrentProfile(null);setCurrentTab(AppTab.HOME);setAiReport(null);}} className="p-2 hover:bg-stone-100 rounded-full transition-colors"><RotateCcw size={18} className="text-stone-700"/></button>}/>
       <div className="flex-1 overflow-hidden relative">
         {currentTab === AppTab.HOME ? <HomeView onGenerate={handleGenerate} archives={archives} /> : 
-         currentTab === AppTab.CHART && baziChart && currentProfile ? <BaziChartView profile={currentProfile} chart={baziChart} onShowModal={setModalData} onSaveReport={(r:string, t:'bazi'|'ziwei')=>saveAiReportToArchive(currentProfile.id, r, t)} onAiAnalysis={handleAiAnalysis} loadingAi={loadingAi} aiReport={aiReport} /> :
+         currentTab === AppTab.CHART && baziChart && currentProfile ? <BaziChartView profile={currentProfile} chart={baziChart} onShowModal={setModalData} onSaveReport={(r:string, t:'bazi'|'ziwei')=>saveAiReportToArchive(currentProfile.id, r, t)} onAiAnalysis={handleAiAnalysis} loadingAi={loadingAi} aiReport={aiReport} isVip={isVip} /> :
          currentTab === AppTab.ZIWEI && currentProfile ? <ZiweiView profile={currentProfile} onSaveReport={(r)=>saveAiReportToArchive(currentProfile.id, r, 'ziwei')} /> : 
-         currentTab === AppTab.ARCHIVE ? <ArchiveView archives={archives} setArchives={setArchives} onSelect={handleGenerate} /> :
+         currentTab === AppTab.ARCHIVE ? <ArchiveView archives={archives} setArchives={setArchives} onSelect={handleGenerate} isVip={isVip} onVipClick={() => setShowVipModal(true)} /> :
          <HomeView onGenerate={handleGenerate} archives={archives} />}
       </div>
       <BottomNav currentTab={currentTab} onTabChange={setCurrentTab} />
       {modalData && <DetailModal data={modalData} chart={baziChart} onClose={() => setModalData(null)} />}
+      {showVipModal && <VipActivationModal onClose={() => setShowVipModal(false)} onActivate={handleActivateVip} />}
     </div>
   );
 };

@@ -1,132 +1,155 @@
-// ==========================================
-// 核心数据结构 (Core Data Structures)
-// ==========================================
+export type Gender = 'male' | 'female';
 
-export interface Star {
-    name: string;
-    hua?: '禄' | '权' | '科' | '忌' | null;
-    brightness?: string;
-    type?: string;
-    isBorrowed?: boolean;
+export interface GanZhi {
+  gan: string;
+  zhi: string;
+  ganElement: string;
+  zhiElement: string;
+  hiddenStems: { stem: string; type: string; powerPercentage: number; shiShen: string }[];
+  naYin: string;
+  shiShenGan: string;     // 天干十神
+  lifeStage: string;      // 十二长生
+  selfLifeStage?: string; // 自坐长生
 }
 
-export interface SiHuaDetail {
-    star: string;
-    hua: string;
-    starDesc: string;
-    palaceDesc: string;
+export interface Pillar {
+  name: string;
+  ganZhi: GanZhi;
+  shenSha: string[];
+  kongWang?: boolean;
 }
 
-export interface Palace {
-    zhiIndex: number;
-    zhi: string;
-    stem: string;
-    name: string;
-    stars: {
-        major: Star[];
-        minor: Star[];
-    };
-    isMing: boolean;
-    isShen: boolean;
-    smallStars: any[];
-    borrowed: boolean;
-    changSheng: string;
-    boShi: string;
-    suiQian: string;
-    daXian: string;
-    siHuaTexts: SiHuaDetail[];
+export interface LuckPillar {
+  index: number;
+  startAge: number;
+  startYear: number;
+  endYear: number;
+  ganZhi: GanZhi;
 }
 
-export interface Bureau {
-    name: string;
-    num: number;
-    type: string;
+export interface XiaoYun {
+  age: number;
+  year: number;
+  ganZhi: GanZhi;
 }
 
-export interface Pattern {
-    id: string;
-    name: string;
-    type: string; // '吉' | '大吉' | '凶' | '大凶' | '特殊' | '平'
-    level: number;
-    description: string;
-    stars: string[];
+export interface BalanceAnalysis {
+  dayMasterStrength: { score: number; level: string; description: string };
+  yongShen: string[];
+  xiShen: string[];
+  jiShen: string[];
+  method: string;
+  advice: string;
 }
 
-export interface ChartData {
-    palaces: Palace[];
-    mingIndex: number;
-    shenIndex: number;
-    bureau: Bureau;
-    solar: any; // from lunar-javascript
-    lunar: any; // from lunar-javascript
-    baZi: string[];
-    gridMapping: (number | null)[];
-    yearGan: string;
-    siHuaDisplay: Array<{ type: string; star: string; color: string }>;
-    patterns: Pattern[];
+export interface PatternAnalysis {
+  name: string;
+  type: string; // 正格/外格
+  isEstablished: boolean;
+  level: string; // 上/中/下等
+  keyFactors: { beneficial: string[]; destructive: string[] };
+  description: string;
 }
 
-export interface DaXianAnalysisItem {
-    range: string;
-    palace: string;
-    keyFeatures: string[];
-    suggestions: string[];
-}
-
-export interface DaXianResult {
-    daXianAnalysis: DaXianAnalysisItem[];
-    currentDaXian: { palace: Palace; range: string; ageRange: { start: number; end: number } } | null;
-}
-
-export interface AiAnalysisData {
-    palaces: Record<string, { content: string }>;
-    siHua: Array<{ title: string; content: string; desc: string }>;
-    daXian: Array<{ range: string; palace: string; note: string }>;
-}
-
-export interface HistoryItem {
-  id: string;
-  birthData: {
-    year: number;
-    month: number;
-    day: number;
-    hour: number;
-    gender: 'M' | 'F';
-    city: string;
-    lng: number;
+export interface BaziChart {
+  profileId: string;
+  gender: Gender;
+  dayMaster: string;
+  dayMasterElement: string;
+  pillars: {
+    year: Pillar;
+    month: Pillar;
+    day: Pillar;
+    hour: Pillar;
   };
-  generatedAt: number;
-  content: string;
+  mingGong: string;
+  shenGong: string;
+  taiYuan: string;
+  taiXi: string;
+  wuxingCounts: Record<string, number>;
+  luckPillars: LuckPillar[];
+  xiaoYun: XiaoYun[];
+  startLuckText: string;
+  godStrength: any[]; // 暂简略
+  shenShaInteractions: any[];
+  balance: BalanceAnalysis;
+  pattern: PatternAnalysis;
+  originalTime?: string;
+  mangPai?: string[];
 }
 
-// ==========================================
-// 四化与策略规则 (新增部分)
-// ==========================================
-
-// 用于 src/data/sihua.ts
-export interface SiHuaRule {
-  starNature: string;       // 星曜类别
-  starDomain: string;       // 星曜主司领域
-  huaEffect: string;        // 四化带来的转变
-  beforeHua: string;        // 化前状态
-  afterHua: string;         // 化后状态
-  palaceTheme: string;      // 宫位主题
-  applicationArea: string;  // 应用场景
-  huaNature: '吉' | '中性偏吉' | '中性' | '中性偏凶' | '凶' | '大吉' | '大凶';
-  overallMeaning: string;   // 综合含义
-  do: string;               // 宜做什么
-  dont: string;             // 忌做什么
-  sensitivePeriod: string;  // 敏感时期
+export interface UserProfile {
+  id: string;
+  name: string;
+  gender: Gender;
+  birthDate: string; // YYYY-MM-DD
+  birthTime: string; // HH:mm
+  isSolarTime: boolean;
+  province?: string;
+  city?: string;
+  longitude?: number;
+  createdAt: number;
+  avatar?: string;
+  // 🔥 新增：标签字段
+  tags?: string[]; 
+  aiReports?: { id: string; date: number; content: string; type: 'bazi' | 'ziwei' }[];
 }
 
-// 用于 src/data/interpretation.ts
-export interface StrategySection {
-    emoji: string;
-    title: string;
-    content: string;
+export interface ModalData {
+  title: string;
+  pillarName: string;
+  ganZhi: GanZhi;
+  shenSha: string[];
 }
 
-export interface DaXianStrategy {
-    theme: string;
-    sections: StrategySection[];
+export enum AppTab {
+  HOME = 'home',
+  CHART = 'chart',
+  ZIWEI = 'ziwei',
+  ARCHIVE = 'archive'
+}
+
+// 🔥 这里是您之前找不到的地方，现在已经加好了
+export enum ChartSubTab {
+  BASIC = 'basic',
+  DETAIL = 'detail',
+  ANALYSIS = 'analysis',
+  CHAT = 'chat' // 🔥 新增：AI 对话
+}
+
+export interface AnnualFortune {
+  year: number;
+  ganZhi: GanZhi;
+  rating: '吉' | '凶' | '平';
+  reasons: string[];
+  score: number;
+}
+
+export interface BaziReport {
+  overall: string;
+  career: string;
+  wealth: string;
+  love: string;
+  health: string;
+  advice: string;
+  luckyElements: string[];
+  copyText: string;
+  sections: { id: string; title: string; content: string }[];
+}
+
+// 占位接口
+export interface HiddenStem {}
+export interface GodStrength {}
+export interface TrendActivation {}
+export interface ShenShaInteraction {}
+export interface InterpretationResult {}
+export interface PillarInterpretation {
+    pillarName: string;
+    coreSymbolism: string;
+    hiddenDynamics: string;
+    naYinInfluence: string;
+    lifeStageEffect: string;
+    shenShaEffects: string[];
+    roleInDestiny: string;
+    integratedSummary: string;
 }
