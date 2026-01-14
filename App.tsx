@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { BottomNav, Header } from './components/Layout';
+import { BottomNav as OriginalBottomNav, Header as OriginalHeader } from './components/Layout';
 import { AppTab, ChartSubTab, UserProfile, BaziChart, Gender, ModalData, GanZhi, Pillar, BaziReport, BalanceAnalysis } from './types';
 import { calculateBazi, interpretAnnualPillar, interpretLuckPillar, interpretYearPillar, interpretMonthPillar, interpretDayPillar, interpretHourPillar } from './services/baziService';
 import { analyzeBaziStructured } from './services/geminiService';
 import { sendChatMessage, ChatMessage } from './services/chatService';
 import { getArchives, saveArchive, deleteArchive, saveAiReportToArchive, updateArchive } from './services/storageService';
-import { Activity, BrainCircuit, RotateCcw, Info, X, Sparkles, Sun, Trash2, MapPin, History, Eye, EyeOff, Compass, Calendar, Clock, Check, BarChart3, CheckCircle, FileText, ClipboardCopy, Maximize2, ChevronRight, User, Edit2, Plus, Tag, ShieldCheck, Crown, Send, MessageCircle, HelpCircle } from 'lucide-react';
+import { Activity, BrainCircuit, RotateCcw, Info, X, Sparkles, Sun, Trash2, MapPin, History, Eye, EyeOff, Compass, Calendar, Clock, Check, BarChart3, CheckCircle, FileText, ClipboardCopy, Maximize2, ChevronRight, User, Edit2, Plus, Tag, ShieldCheck, Crown, Send, MessageCircle, HelpCircle, Gem, ArrowLeftRight, GitMerge } from 'lucide-react';
 import { CHINA_LOCATIONS, FIVE_ELEMENTS, SHEN_SHA_DESCRIPTIONS } from './services/constants';
 
 import ZiweiView from './components/ZiweiView';
 import { BaziAnalysisView } from './components/BaziAnalysisView';
 
-// --- 基础工具组件 ---
+// --- 1. 基础 UI 组件 ---
 const ElementText: React.FC<{ text: string; className?: string; showFiveElement?: boolean }> = ({ text, className = '', showFiveElement = false }) => {
   if (!text) return null;
   const element = FIVE_ELEMENTS[text] || text;
@@ -48,20 +48,19 @@ const getLifeStageStyle = (stage: string) => {
   return 'text-stone-400 bg-stone-50 border border-stone-100';
 };
 
+// 智能排版渲染器
 const SmartTextRenderer: React.FC<{ content: string }> = ({ content }) => {
   if (!content) return null;
-  // 简单的 Markdown 换行处理
   const lines = content.split('\n');
   return (
-    <div className="space-y-3 text-[13px] leading-relaxed">
+    <div className="space-y-3 text-[13px] leading-relaxed text-stone-700">
       {lines.map((line, idx) => {
-        if (line.trim() === '') return <div key={idx} className="h-1" />; // 空行占位
-        
+        if (line.trim() === '') return <div key={idx} className="h-1" />;
         const isHeader = line.match(/^(\p{Emoji}|🎯|⚡|🌊|🌟|💼|💰|💕|#)/u);
         if (isHeader) {
            return (
-             <div key={idx} className="mt-4 first:mt-0 bg-opacity-50 bg-stone-100 border-l-2 border-indigo-400 pl-3 py-1.5 rounded-r-lg">
-                <span className="font-bold opacity-90">{line.replace(/#/g, '')}</span>
+             <div key={idx} className="mt-4 first:mt-0 bg-stone-50 border-l-2 border-indigo-400 pl-3 py-1.5 rounded-r-lg">
+                <span className="font-bold text-stone-900">{line.replace(/#/g, '')}</span>
              </div>
            );
         }
@@ -70,7 +69,7 @@ const SmartTextRenderer: React.FC<{ content: string }> = ({ content }) => {
           <p key={idx} className="text-justify">
             {parts.map((part, i) => {
               if (part.startsWith('**') && part.endsWith('**')) {
-                return <span key={i} className="font-bold opacity-90 mx-0.5">{part.slice(2, -2)}</span>;
+                return <span key={i} className="font-bold text-indigo-700 mx-0.5">{part.slice(2, -2)}</span>;
               }
               return part;
             })}
@@ -81,7 +80,25 @@ const SmartTextRenderer: React.FC<{ content: string }> = ({ content }) => {
   );
 };
 
-// --- VIP 激活弹窗 ---
+// --- 🔥 VIP 专属 Header (黑金配色) ---
+const VipHeader: React.FC<{ title: string; rightAction?: React.ReactNode; isVip: boolean }> = ({ title, rightAction, isVip }) => (
+  <header className={`sticky top-0 z-50 px-5 h-16 flex items-center justify-between transition-all duration-500 ${isVip ? 'bg-[#1c1917] border-b border-amber-900/30 shadow-2xl' : 'bg-white/90 backdrop-blur-md border-b border-stone-200 text-stone-900'}`}>
+    <h1 className={`text-lg font-serif font-black tracking-wider flex items-center gap-2.5 ${isVip ? 'text-amber-100' : 'text-stone-900'}`}>
+      {isVip && (
+          <div className="relative">
+              <div className="absolute inset-0 bg-amber-400 blur-sm opacity-20 animate-pulse"></div>
+              <Crown size={20} className="text-amber-400 fill-amber-400" />
+          </div>
+      )}
+      <span className={isVip ? "bg-clip-text text-transparent bg-gradient-to-r from-amber-100 via-amber-300 to-amber-100" : ""}>{title}</span>
+    </h1>
+    <div className="flex items-center gap-2">
+      {rightAction}
+    </div>
+  </header>
+);
+
+// --- 🔥 VIP 激活弹窗 (带价格) ---
 const VipActivationModal: React.FC<{ onClose: () => void; onActivate: () => void }> = ({ onClose, onActivate }) => {
     const [code, setCode] = useState('');
     const [error, setError] = useState('');
@@ -97,57 +114,57 @@ const VipActivationModal: React.FC<{ onClose: () => void; onActivate: () => void
 
     return (
         <div className="fixed inset-0 z-[2500] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-stone-900/80 backdrop-blur-sm" onClick={onClose} />
-            <div className="relative bg-white w-full max-w-sm rounded-[2rem] shadow-2xl overflow-hidden animate-slide-up">
+            <div className="absolute inset-0 bg-stone-950/80 backdrop-blur-md" onClick={onClose} />
+            <div className="relative bg-white w-full max-w-sm rounded-[2rem] shadow-2xl overflow-hidden animate-slide-up border border-white/20">
                 
-                {/* 1. 头部：黑金配色 + 醒目价格 */}
-                <div className="bg-gradient-to-br from-stone-900 via-stone-800 to-stone-900 p-6 text-center relative overflow-hidden">
+                {/* 头部：黑金配色 + 醒目价格 */}
+                <div className="bg-gradient-to-br from-stone-900 via-stone-800 to-stone-950 p-7 text-center relative overflow-hidden">
                     <div className="absolute -top-6 -right-6 opacity-10 rotate-12"><Crown size={140} color="white"/></div>
                     <h3 className="text-amber-500/80 text-[10px] font-black tracking-[0.3em] uppercase mb-1 relative z-10">VIP Premium Access</h3>
-                    <div className="flex items-baseline justify-center gap-1 text-white relative z-10 my-1">
-                        <span className="text-base font-bold text-amber-500">¥</span>
-                        <span className="text-5xl font-black tracking-tighter text-amber-400 drop-shadow-sm">39.9</span>
-                        <span className="text-[10px] font-black bg-gradient-to-r from-amber-400 to-yellow-300 text-stone-900 px-2 py-0.5 rounded-full ml-1 shadow-sm transform -translate-y-4">永久解锁</span>
+                    <div className="flex items-baseline justify-center gap-1 text-white relative z-10 my-2">
+                        <span className="text-xl font-bold text-amber-500">¥</span>
+                        <span className="text-6xl font-black tracking-tighter text-amber-400 drop-shadow-lg">39.9</span>
+                        <span className="text-[10px] font-black bg-gradient-to-r from-amber-400 to-yellow-300 text-stone-900 px-2 py-0.5 rounded-full ml-2 shadow-sm transform -translate-y-4">永久解锁</span>
                     </div>
-                    <p className="text-[10px] text-stone-500 relative z-10">
-                        <span className="line-through mr-2">原价 ¥299.0</span>
-                        <span>解锁 AI 深度对话 & 无限排盘</span>
+                    <p className="text-[11px] text-stone-400 relative z-10 font-medium">
+                        <span className="line-through mr-2 opacity-60">原价 ¥299.0</span>
+                        <span className="text-amber-200/80">解锁 AI 深度对话 & 无限排盘</span>
                     </p>
                 </div>
                 
-                <div className="p-6 space-y-6">
-                    {/* 2. 二维码区域 */}
-                    <div className="flex flex-col items-center gap-3">
-                        <div className="w-48 h-48 bg-white rounded-xl border border-stone-200 flex items-center justify-center relative overflow-hidden p-1 shadow-sm group">
+                <div className="p-6 space-y-6 bg-white">
+                    {/* 二维码区域 */}
+                    <div className="flex flex-col items-center gap-4">
+                        <div className="w-52 h-52 bg-white rounded-2xl border border-stone-100 flex items-center justify-center relative overflow-hidden p-2 shadow-lg group">
                             <div className="absolute inset-0 bg-amber-500/5 group-hover:bg-transparent transition-colors z-10 pointer-events-none"/>
                             <img 
                                 src="https://imgus.tangbuy.com/static/images/2026-01-14/d3cfc3391f4b4049855b70428d881cc8-17683802616059959910686892450765.jpg" 
                                 alt="Payment QR" 
-                                className="w-full h-full object-contain" 
+                                className="w-full h-full object-contain rounded-lg" 
                             />
                         </div>
-                        <p className="text-[10px] text-stone-400 text-center max-w-[240px] leading-relaxed">
-                            请使用微信/支付宝扫码支付 <b className="text-stone-800">¥39.9</b><br/>
+                        <p className="text-[11px] text-stone-500 text-center max-w-[240px] leading-relaxed">
+                            请使用微信/支付宝扫码支付 <b className="text-stone-900 font-black">¥39.9</b><br/>
                             支付成功后截图联系客服，获取您的专属密钥
                         </p>
                     </div>
 
-                    {/* 3. 密钥输入 */}
+                    {/* 密钥输入 */}
                     <div className="space-y-2">
                         <input 
                             type="text" 
                             value={code}
                             onChange={(e) => { setCode(e.target.value); setError(''); }}
                             placeholder="在此输入专属密钥激活"
-                            className="w-full bg-stone-50 border-2 border-stone-200 rounded-xl px-4 py-3 font-mono font-bold text-center text-sm focus:border-amber-400 focus:bg-white outline-none transition-all placeholder:font-sans placeholder:text-stone-300 text-stone-800"
+                            className="w-full bg-stone-50 border-2 border-stone-200 rounded-xl px-4 py-4 font-mono font-bold text-center text-base focus:border-amber-400 focus:bg-white outline-none transition-all placeholder:font-sans placeholder:text-stone-300 text-stone-800 shadow-inner"
                         />
                         {error && <p className="text-xs text-rose-500 text-center font-bold animate-pulse">{error}</p>}
                     </div>
 
-                    {/* 4. 激活按钮 */}
+                    {/* 激活按钮 */}
                     <button 
                         onClick={handleSubmit}
-                        className="w-full py-4 bg-stone-900 text-white rounded-xl font-black text-sm shadow-xl active:scale-95 transition-transform flex items-center justify-center gap-2 hover:bg-stone-800"
+                        className="w-full py-4 bg-[#1c1917] text-white rounded-xl font-black text-sm shadow-xl active:scale-95 transition-transform flex items-center justify-center gap-2 hover:bg-stone-800"
                     >
                         <Sparkles size={16} className="text-amber-400" /> 立即激活永久 VIP
                     </button>
@@ -157,7 +174,7 @@ const VipActivationModal: React.FC<{ onClose: () => void; onActivate: () => void
     );
 };
 
-// --- 🔥 优化：AI 聊天界面 (流式响应 + UI对比度修复) ---
+// --- 🔥 AI 聊天界面 (流式响应 + UI对比度修复) ---
 const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
     const [messages, setMessages] = useState<ChatMessage[]>([
         { role: 'assistant', content: `尊贵的 VIP 用户，您好！\n我是您的专属命理师。我已经深度研读了您的命盘（${chart.dayMaster}日主，${chart.pattern.name}），请问您今天想了解哪方面的运势？` }
@@ -186,16 +203,12 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
         try {
             const contextMessages = [...messages, userMsg].map(m => ({ role: m.role, content: m.content })).slice(-10);
             
-            // 🔥 流式响应处理逻辑
-            // 1. 先添加一个空的 assistant 消息
             setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
             
-            // 2. 调用 Service，传入回调函数实时更新最后一条消息
             await sendChatMessage(contextMessages, chart, (chunk) => {
                 setMessages(prev => {
                     const newMsgs = [...prev];
                     const lastMsg = newMsgs[newMsgs.length - 1];
-                    // 确保最后一条是 assistant 的消息
                     if (lastMsg.role === 'assistant') {
                         lastMsg.content += chunk;
                     }
@@ -222,14 +235,13 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
                         )}
                         <div className={`max-w-[85%] p-4 rounded-2xl text-[14px] leading-relaxed shadow-sm ${
                             msg.role === 'user' 
-                                ? 'bg-indigo-600 text-white rounded-tr-none shadow-indigo-200'  // 🔥 修复：这里明确 text-white
+                                ? 'bg-indigo-600 text-white rounded-tr-none shadow-indigo-200'
                                 : 'bg-white text-stone-800 rounded-tl-none border border-stone-100 shadow-stone-200'
                         }`}>
                             <SmartTextRenderer content={msg.content} />
                         </div>
                     </div>
                 ))}
-                {/* Loading 状态（等待流式开始前的短暂loading） */}
                 {loading && messages[messages.length - 1].role === 'user' && (
                     <div className="flex justify-start">
                         <div className="w-8 h-8 rounded-full bg-stone-900 text-amber-400 flex items-center justify-center shrink-0 mr-2 mt-1"><Crown size={14} fill="currentColor" /></div>
@@ -243,7 +255,6 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
                 <div ref={messagesEndRef} />
             </div>
             
-            {/* 底部输入区 */}
             <div className="p-3 bg-white border-t border-stone-200 shadow-[0_-4px_20px_rgba(0,0,0,0.02)]">
                 {suggestions.length > 0 && !loading && (
                     <div className="flex gap-2 overflow-x-auto no-scrollbar mb-3 px-1">
@@ -261,13 +272,211 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
     );
 };
 
-// --- 复用的组件 (ReportHistoryModal, DetailModal, BalancePanel, BaziChartGrid) ---
-const BalancePanel: React.FC<{ balance: BalanceAnalysis; wuxing: Record<string, number>; dm: string }> = ({ balance, wuxing, dm }) => {
-  const elements = ['木', '火', '土', '金', '水']; return (<div className="bg-white border border-stone-300 rounded-2xl p-4 shadow-sm space-y-3"><div className="flex items-center justify-between mb-1"><div className="flex items-center gap-2"><BarChart3 size={14} className="text-stone-600"/><span className="text-[10px] font-black text-stone-700 uppercase tracking-widest">能量均衡分析</span></div><div className="px-2.5 py-0.5 bg-stone-900 text-white rounded-full text-[9px] font-black uppercase shadow-sm">日元 {dm} · {balance.dayMasterStrength.level}</div></div><div className="grid grid-cols-5 gap-1.5">{elements.map(el => (<div key={el} className="flex flex-col items-center gap-1.5 p-1.5 rounded-xl bg-stone-50 border border-stone-200 shadow-inner"><ElementText text={el} className="font-black text-[10px]" /><div className="text-[9px] font-black text-stone-800 bg-white px-1.5 rounded-full border border-stone-100">{wuxing[el] || 0}</div></div>))}</div><div className="bg-indigo-50/40 p-3 rounded-xl border border-indigo-100/50"><div className="flex flex-wrap items-center gap-1.5 mb-1.5"><span className="text-[9px] font-black text-indigo-900 bg-indigo-100/50 px-1.5 py-0.5 rounded uppercase">喜用</span>{balance.yongShen.map(s => <span key={s} className="text-[11px] font-bold text-indigo-950 flex items-center gap-0.5"><div className="w-1 h-1 rounded-full bg-emerald-500"/>{s}</span>)}</div><p className="text-[11px] text-indigo-900/80 leading-snug font-bold italic">“{balance.advice}”</p></div></div>);
+// --- 历史报告详情模态框 ---
+const ReportHistoryModal: React.FC<{ report: any; onClose: () => void }> = ({ report, onClose }) => {
+    if (!report) return null;
+    return (
+        <div className="fixed inset-0 z-[2200] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm" onClick={onClose} />
+            <div className="relative bg-white w-full max-w-lg rounded-[2rem] shadow-2xl flex flex-col max-h-[85vh] animate-slide-up overflow-hidden">
+                <div className="p-5 border-b border-stone-100 flex justify-between items-center bg-stone-50/80 backdrop-blur sticky top-0 z-10">
+                    <div>
+                        <div className="flex items-center gap-2 mb-1">
+                            <span className="text-[10px] font-black px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">{report.userName}</span>
+                            <span className="text-[10px] text-stone-400">{new Date(report.date).toLocaleString()}</span>
+                        </div>
+                        <h3 className="font-black text-stone-900 text-sm">大师解盘报告详单</h3>
+                    </div>
+                    <button onClick={onClose} className="p-2 rounded-full bg-stone-100 text-stone-400 hover:text-stone-950 transition-colors"><X size={20}/></button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar bg-white">
+                    <SmartTextRenderer content={report.content} />
+                </div>
+                <div className="p-4 border-t border-stone-100 bg-stone-50">
+                    <button onClick={() => { navigator.clipboard.writeText(report.content); alert('报告内容已复制'); }} className="w-full py-3 bg-stone-900 text-white rounded-xl text-sm font-bold shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-transform">
+                        <ClipboardCopy size={16} /> 复制完整报告
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
 };
+
+// --- 详情弹窗组件 ---
+const DetailModal: React.FC<{ data: ModalData; chart: BaziChart | null; onClose: () => void }> = ({ data, chart, onClose }) => {
+  if (!chart) return null;
+  let interp;
+  if (data.pillarName === '流年') {
+      interp = interpretAnnualPillar(chart, data.ganZhi);
+  } else if (data.pillarName === '大运') {
+      interp = interpretLuckPillar(chart, data.ganZhi);
+  } else {
+      interp = data.pillarName.includes('年') ? interpretYearPillar(chart) : 
+               data.pillarName.includes('月') ? interpretMonthPillar(chart) : 
+               data.pillarName.includes('日') ? interpretDayPillar(chart) : 
+               data.pillarName.includes('时') ? interpretHourPillar(chart) : null;
+  }
+  const [copied, setCopied] = useState(false);
+  const handleCopyText = () => {
+    const textToCopy = interp?.integratedSummary || "";
+    navigator.clipboard.writeText(textToCopy).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  };
+  if (!interp) return null;
+
+  return (
+    <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden border border-stone-200 animate-slide-up flex flex-col max-h-[85vh]">
+        <div className="p-5 border-b border-stone-100 flex justify-between items-center bg-white/90 backdrop-blur sticky top-0 z-10">
+          <div className="flex items-center gap-2"><div className="w-1.5 h-4 bg-indigo-600 rounded-full" /><span className="text-sm font-black text-stone-900 uppercase tracking-widest">{data.pillarName}深度解析</span></div>
+          <button onClick={onClose} className="p-2 rounded-full bg-stone-50 text-stone-400 hover:text-stone-950 hover:bg-stone-100 transition-colors"><X size={18}/></button>
+        </div>
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-6">
+          <div className="flex justify-center items-center gap-6 bg-gradient-to-br from-stone-50 to-white py-4 rounded-3xl border border-stone-200 shadow-sm shrink-0">
+            <div className="flex flex-col items-center"><ElementText text={data.ganZhi.gan} className="text-4xl font-serif font-black" showFiveElement /></div>
+            <div className="w-px h-12 bg-stone-200" />
+            <div className="flex flex-col items-center"><ElementText text={data.ganZhi.zhi} className="text-4xl font-serif font-black" showFiveElement /></div>
+            <div className="w-px h-12 bg-stone-200" />
+            <div className="flex flex-col items-center justify-center text-center gap-1">
+              <span className="text-[10px] font-black text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-lg">{data.pillarName === '日柱' ? '日元' : data.ganZhi.shiShenGan}</span>
+              <span className="text-[10px] text-stone-500 font-medium">{data.ganZhi.naYin}</span>
+              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${['帝旺','临官','冠带','长生'].includes(data.ganZhi.lifeStage) ? 'bg-red-50 text-red-600' : 'bg-stone-100 text-stone-500'}`}>{data.ganZhi.lifeStage}</span>
+            </div>
+          </div>
+          <div className="space-y-6">
+            <section className="space-y-3">
+              <div className="flex justify-between items-center px-1">
+                <h5 className="text-xs font-black text-stone-800 flex items-center gap-1.5 uppercase tracking-wider"><CheckCircle size={14} className="text-emerald-500" /> 大师断语</h5>
+                <button onClick={handleCopyText} className={`flex items-center gap-1 text-[10px] font-bold transition-all px-2.5 py-1 rounded-full ${copied ? 'bg-emerald-600 text-white' : 'bg-stone-100 text-stone-500 hover:bg-stone-200'}`}>{copied ? <Check size={12}/> : <ClipboardCopy size={12}/>} {copied ? '已复制' : '复制'}</button>
+              </div>
+              <div className="bg-white p-1 rounded-2xl"><SmartTextRenderer content={interp.integratedSummary} /></div>
+            </section>
+            {data.shenSha.length > 0 && (
+              <section className="space-y-3 pt-2 border-t border-stone-100">
+                <h5 className="text-xs font-black text-stone-800 flex items-center gap-1.5 uppercase tracking-wider px-1"><Sparkles size={14} className="text-amber-500" /> 神煞加持</h5>
+                <div className="grid grid-cols-1 gap-2.5">
+                  {data.shenSha.map(s => (
+                    <div key={s} className="flex gap-3 items-start p-3 bg-stone-50/50 border border-stone-100 rounded-xl"><div className="shrink-0 pt-0.5"><ShenShaBadge name={s}/></div><p className="text-[11px] text-stone-600 leading-normal font-medium">{SHEN_SHA_DESCRIPTIONS[s] || "此星入命，主命局有特定之感应。"}</p></div>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- 五行强弱面板 ---
+const BalancePanel: React.FC<{ balance: BalanceAnalysis; wuxing: Record<string, number>; dm: string }> = ({ balance, wuxing, dm }) => {
+  const elements = ['木', '火', '土', '金', '水'];
+  return (
+    <div className="bg-white border border-stone-300 rounded-2xl p-4 shadow-sm space-y-3">
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2"><BarChart3 size={14} className="text-stone-600"/><span className="text-[10px] font-black text-stone-700 uppercase tracking-widest">能量均衡分析</span></div>
+        <div className="px-2.5 py-0.5 bg-stone-900 text-white rounded-full text-[9px] font-black uppercase shadow-sm">日元 {dm} · {balance.dayMasterStrength.level}</div>
+      </div>
+      <div className="grid grid-cols-5 gap-1.5">
+        {elements.map(el => (
+          <div key={el} className="flex flex-col items-center gap-1.5 p-1.5 rounded-xl bg-stone-50 border border-stone-200 shadow-inner"><ElementText text={el} className="font-black text-[10px]" /><div className="text-[9px] font-black text-stone-800 bg-white px-1.5 rounded-full border border-stone-100">{wuxing[el] || 0}</div></div>
+        ))}
+      </div>
+      <div className="bg-indigo-50/40 p-3 rounded-xl border border-indigo-100/50">
+        <div className="flex flex-wrap items-center gap-1.5 mb-1.5"><span className="text-[9px] font-black text-indigo-900 bg-indigo-100/50 px-1.5 py-0.5 rounded uppercase">喜用</span>{balance.yongShen.map(s => <span key={s} className="text-[11px] font-bold text-indigo-950 flex items-center gap-0.5"><div className="w-1 h-1 rounded-full bg-emerald-500"/>{s}</span>)}</div>
+        <p className="text-[11px] text-indigo-900/80 leading-snug font-bold italic">“{balance.advice}”</p>
+      </div>
+    </div>
+  );
+};
+
+// --- 八字主网格 (完整版) ---
 const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart, onOpenModal }) => {
-  const pillars = [{ key: 'year', label: '年柱', data: chart.pillars.year }, { key: 'month', label: '月柱', data: chart.pillars.month }, { key: 'day', label: '日柱', data: chart.pillars.day }, { key: 'hour', label: '时柱', data: chart.pillars.hour }];
-  return (<div className="bg-white border border-stone-300 rounded-3xl overflow-hidden shadow-sm mb-2"><div className="grid grid-cols-5 bg-stone-100 border-b border-stone-300 text-center py-2 text-[10px] font-black text-stone-700 uppercase tracking-wider"><div className="bg-stone-100 flex items-center justify-center">四柱</div>{pillars.map(p => <div key={p.key}>{p.label}</div>)}</div><div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[64px]"><div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">天干</div>{pillars.map(p => (<div key={p.key} onClick={() => onOpenModal(p.label, p.data.ganZhi, p.data.name, p.data.shenSha)} className="relative w-full flex flex-col items-center justify-center py-2 cursor-pointer hover:bg-black/5 transition-colors border-l border-stone-200"><span className="absolute top-1 right-1 text-[8px] font-black text-indigo-400 scale-90">{p.data.name === '日柱' ? '日元' : p.data.ganZhi.shiShenGan}</span><ElementText text={p.data.ganZhi.gan} className="text-2xl font-black font-serif" showFiveElement /></div>))}</div><div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[50px]"><div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">地支</div>{pillars.map(p => (<div key={p.key} onClick={() => onOpenModal(p.label, p.data.ganZhi, p.data.name, p.data.shenSha)} className="flex flex-col items-center justify-center py-2 cursor-pointer hover:bg-black/5 transition-colors border-l border-stone-200"><ElementText text={p.data.ganZhi.zhi} className="text-2xl font-black font-serif" showFiveElement /></div>))}</div><div className="grid grid-cols-5 border-b border-stone-200 items-stretch"><div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">藏干</div>{pillars.map(p => (<div key={p.key} className="flex flex-col items-center justify-center py-2 gap-0.5 border-l border-stone-200">{p.data.ganZhi.hiddenStems.slice(0, 2).map((h, idx) => (<div key={idx} className="flex items-center gap-0.5 scale-90"><span className={`text-[10px] ${h.type==='主气'?'font-black':'text-stone-500'}`}>{h.stem}</span><span className="text-[8px] text-stone-400">{h.shiShen}</span></div>))}</div>))}</div><div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[30px]"><div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">星运</div>{pillars.map(p => { const styleClass = getLifeStageStyle(p.data.ganZhi.lifeStage); return (<div key={p.key} className="flex items-center justify-center py-1.5 border-l border-stone-200"><span className={`text-[10px] px-1.5 py-0.5 rounded-md leading-none ${styleClass}`}>{p.data.ganZhi.lifeStage}</span></div>); })}</div><div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[40px]"><div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">神煞</div>{pillars.map(p => (<div key={p.key} onClick={() => onOpenModal(p.label, p.data.ganZhi, p.data.name, p.data.shenSha)} className="flex flex-col items-center justify-start pt-2 px-0.5 gap-1 cursor-pointer hover:bg-black/5 transition-colors border-l border-stone-200">{p.data.shenSha.slice(0, 2).map((s, idx) => <ShenShaBadge key={idx} name={s} />)}</div>))}</div><div className="grid grid-cols-5 items-stretch min-h-[30px]"><div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">纳音</div>{pillars.map(p => (<div key={p.key} className="flex items-center justify-center py-1.5 border-l border-stone-200"><span className="text-[10px] text-stone-500 font-medium scale-95 whitespace-nowrap">{p.data.ganZhi.naYin}</span></div>))}</div></div>);
+  const pillars = [
+    { key: 'year', label: '年柱', data: chart.pillars.year },
+    { key: 'month', label: '月柱', data: chart.pillars.month },
+    { key: 'day', label: '日柱', data: chart.pillars.day },
+    { key: 'hour', label: '时柱', data: chart.pillars.hour },
+  ];
+
+  return (
+    <div className="bg-white border border-stone-300 rounded-3xl overflow-hidden shadow-sm mb-2">
+      {/* 表头 */}
+      <div className="grid grid-cols-5 bg-stone-100 border-b border-stone-300 text-center py-2 text-[10px] font-black text-stone-700 uppercase tracking-wider">
+        <div className="bg-stone-100 flex items-center justify-center">四柱</div>
+        {pillars.map(p => <div key={p.key}>{p.label}</div>)}
+      </div>
+
+      {/* 1. 天干 */}
+      <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[64px]">
+        <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">天干</div>
+        {pillars.map(p => (
+          <div key={p.key} onClick={() => onOpenModal(p.label, p.data.ganZhi, p.data.name, p.data.shenSha)} className="relative w-full flex flex-col items-center justify-center py-2 cursor-pointer hover:bg-black/5 transition-colors border-l border-stone-200">
+            <span className="absolute top-1 right-1 text-[8px] font-black text-indigo-400 scale-90">{p.data.name === '日柱' ? '日元' : p.data.ganZhi.shiShenGan}</span>
+            <ElementText text={p.data.ganZhi.gan} className="text-2xl font-black font-serif" showFiveElement />
+          </div>
+        ))}
+      </div>
+
+      {/* 2. 地支 */}
+      <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[50px]">
+        <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">地支</div>
+        {pillars.map(p => (
+          <div key={p.key} onClick={() => onOpenModal(p.label, p.data.ganZhi, p.data.name, p.data.shenSha)} className="flex flex-col items-center justify-center py-2 cursor-pointer hover:bg-black/5 transition-colors border-l border-stone-200">
+            <ElementText text={p.data.ganZhi.zhi} className="text-2xl font-black font-serif" showFiveElement />
+          </div>
+        ))}
+      </div>
+
+      {/* 3. 藏干 */}
+      <div className="grid grid-cols-5 border-b border-stone-200 items-stretch">
+        <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">藏干</div>
+        {pillars.map(p => (
+          <div key={p.key} className="flex flex-col items-center justify-center py-2 gap-0.5 border-l border-stone-200">
+            {p.data.ganZhi.hiddenStems.slice(0, 2).map((h, idx) => (
+              <div key={idx} className="flex items-center gap-0.5 scale-90">
+                <span className={`text-[10px] ${h.type==='主气'?'font-black':'text-stone-500'}`}>{h.stem}</span>
+                <span className="text-[8px] text-stone-400">{h.shiShen}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      {/* 4. 星运 */}
+      <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[30px]">
+        <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">星运</div>
+        {pillars.map(p => {
+          const styleClass = getLifeStageStyle(p.data.ganZhi.lifeStage);
+          return (
+            <div key={p.key} className="flex items-center justify-center py-1.5 border-l border-stone-200">
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-md leading-none ${styleClass}`}>{p.data.ganZhi.lifeStage}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 5. 神煞 */}
+      <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[40px]">
+        <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">神煞</div>
+        {pillars.map(p => (
+          <div key={p.key} onClick={() => onOpenModal(p.label, p.data.ganZhi, p.data.name, p.data.shenSha)} className="flex flex-col items-center justify-start pt-2 px-0.5 gap-1 cursor-pointer hover:bg-black/5 transition-colors border-l border-stone-200">
+            {p.data.shenSha.slice(0, 2).map((s, idx) => <ShenShaBadge key={idx} name={s} />)}
+          </div>
+        ))}
+      </div>
+
+      {/* 6. 纳音 */}
+      <div className="grid grid-cols-5 items-stretch min-h-[30px]">
+        <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">纳音</div>
+        {pillars.map(p => (
+          <div key={p.key} className="flex items-center justify-center py-1.5 border-l border-stone-200">
+            <span className="text-[10px] text-stone-500 font-medium scale-95 whitespace-nowrap">{p.data.ganZhi.naYin}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 };
 
 // --- 5. 综合图表视图组件 ---
@@ -599,8 +808,28 @@ const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelec
     return (
         <div className="h-full flex flex-col bg-[#f5f5f4] p-5 overflow-y-auto pb-24 space-y-4">
             
-            {/* VIP 购买卡片 (仅非 VIP 显示) */}
-            {!isVip && (
+            {/* VIP 购买卡片 (VIP状态不同) */}
+            {isVip ? (
+                <div className="bg-gradient-to-br from-stone-900 via-[#1c1917] to-stone-900 rounded-3xl p-6 shadow-2xl relative overflow-hidden border border-amber-900/30">
+                    {/* VIP 尊享卡片样式 */}
+                    <div className="absolute top-0 right-0 p-4 opacity-10"><Crown size={120} /></div>
+                    <div className="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-black/20 to-transparent"></div>
+                    
+                    <div className="relative z-10 flex flex-col h-full justify-between min-h-[100px]">
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <h3 className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-400 to-amber-200 tracking-wider">PREMIUM MEMBER</h3>
+                                <p className="text-[10px] text-amber-500/80 font-bold tracking-[0.2em] uppercase mt-1">Lifetime Access</p>
+                            </div>
+                            <Crown size={24} className="text-amber-400" />
+                        </div>
+                        <div className="flex items-center gap-2 mt-6">
+                            <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse"></div>
+                            <span className="text-[10px] text-stone-400 font-medium">尊享特权已激活 · AI 命理师在线</span>
+                        </div>
+                    </div>
+                </div>
+            ) : (
                 <div onClick={onVipClick} className="bg-gradient-to-r from-stone-900 to-stone-700 rounded-3xl p-5 shadow-lg relative overflow-hidden cursor-pointer group hover:scale-[1.02] transition-transform">
                     <div className="absolute top-0 right-0 p-4 opacity-10"><Crown size={80} /></div>
                     <div className="relative z-10 flex items-center justify-between">
@@ -658,7 +887,7 @@ const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelec
                 <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-md" onClick={() => setViewingReports(null)} />
                     <div className="relative bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl flex flex-col max-h-[85vh] animate-slide-up overflow-hidden">
-                        <div className="p-5 border-b border-stone-100 flex justify-between items-center bg-stone-50/50"><h3 className="font-black text-stone-950">{viewingReports.name} 的报告库</h3><X onClick={() => setViewingReports(null)} size={20} className="text-stone-400 cursor-pointer"/></div>
+                        <div className="p-5 border-b border-stone-100 flex justify-between items-center bg-stone-50/50"><h3 className="font-black text-stone-900">{viewingReports.name} 的报告库</h3><X onClick={() => setViewingReports(null)} size={20} className="text-stone-400 cursor-pointer"/></div>
                         <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar">
                             {viewingReports.aiReports?.length ? viewingReports.aiReports.map(r => (
                                 <div key={r.id} className="bg-white border border-stone-200 rounded-2xl p-4 shadow-sm space-y-2">
@@ -728,8 +957,16 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-[#f5f5f4] overflow-hidden text-stone-950 font-sans select-none">
-      <Header title={currentTab === AppTab.HOME ? '玄枢命理' : currentProfile?.name || '排盘'} rightAction={currentTab !== AppTab.HOME && <button onClick={()=>{setCurrentProfile(null);setCurrentTab(AppTab.HOME);setAiReport(null);}} className="p-2 hover:bg-stone-100 rounded-full transition-colors"><RotateCcw size={18} className="text-stone-700"/></button>}/>
+    // 🔥 全局背景：VIP 是深色暖金渐变，普通用户是冷灰
+    <div className={`flex flex-col h-screen overflow-hidden text-stone-950 font-sans select-none transition-colors duration-700 ${isVip ? 'bg-[#181816]' : 'bg-[#f5f5f4]'}`}>
+      
+      {/* 使用 VIP Header 替代默认 Header */}
+      <VipHeader 
+        title={currentTab === AppTab.HOME ? '玄枢命理' : currentProfile?.name || '排盘'} 
+        rightAction={currentTab !== AppTab.HOME && <button onClick={()=>{setCurrentProfile(null);setCurrentTab(AppTab.HOME);setAiReport(null);}} className={`p-2 rounded-full transition-colors ${isVip ? 'hover:bg-white/10 text-stone-300' : 'hover:bg-stone-100 text-stone-700'}`}><RotateCcw size={18} /></button>}
+        isVip={isVip}
+      />
+      
       <div className="flex-1 overflow-hidden relative">
         {currentTab === AppTab.HOME ? <HomeView onGenerate={handleGenerate} archives={archives} /> : 
          currentTab === AppTab.CHART && baziChart && currentProfile ? <BaziChartView profile={currentProfile} chart={baziChart} onShowModal={setModalData} onSaveReport={(r:string, t:'bazi'|'ziwei')=>saveAiReportToArchive(currentProfile.id, r, t)} onAiAnalysis={handleAiAnalysis} loadingAi={loadingAi} aiReport={aiReport} isVip={isVip} /> :
@@ -737,7 +974,9 @@ const App: React.FC = () => {
          currentTab === AppTab.ARCHIVE ? <ArchiveView archives={archives} setArchives={setArchives} onSelect={handleGenerate} isVip={isVip} onVipClick={() => setShowVipModal(true)} /> :
          <HomeView onGenerate={handleGenerate} archives={archives} />}
       </div>
-      <BottomNav currentTab={currentTab} onTabChange={setCurrentTab} />
+      
+      <OriginalBottomNav currentTab={currentTab} onTabChange={setCurrentTab} />
+      
       {modalData && <DetailModal data={modalData} chart={baziChart} onClose={() => setModalData(null)} />}
       {showVipModal && <VipActivationModal onClose={() => setShowVipModal(false)} onActivate={handleActivateVip} />}
     </div>
