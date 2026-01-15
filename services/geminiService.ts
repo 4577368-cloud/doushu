@@ -11,6 +11,36 @@ export interface BaziReport {
   }[];
 }
 
+// 复制流式读取器 (为了不跨文件引用导致依赖混乱，这里在内部再定义一次)
+const readStreamResponse = async (response: Response): Promise<string> => {
+  const reader = response.body?.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let fullText = "";
+
+  if (!reader) throw new Error("无法读取响应流");
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    
+    const chunk = decoder.decode(value, { stream: true });
+    const lines = chunk.split('\n');
+    
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const jsonStr = line.slice(6);
+        if (jsonStr.trim() === '[DONE]') continue;
+        try {
+          const json = JSON.parse(jsonStr);
+          const content = json.choices[0]?.delta?.content || '';
+          fullText += content;
+        } catch (e) { }
+      }
+    }
+  }
+  return fullText;
+};
+
 export const analyzeBaziStructured = async (
   chart: BaziChart,
   apiKey?: string
@@ -36,33 +66,30 @@ export const analyzeBaziStructured = async (
 JSON 结构规范：
 {
   "sections": [
-    { "id": "traits", "title": "1. 命主特质识别", "content": "详细分析命局所展现的性格特征、行事风格及天赋优势。" },
-    { "id": "wealth", "title": "2. 财运格局深度解读", "content": "解读理财风格、赚钱模式（正财/偏财/投机），以及辅星对财运的加强或制约作用。" },
-    { "id": "career", "title": "3. 事业运势与财官联动", "content": "分析工作执行力、领导力，给出适合深耕的行业方向，分析是因官得财还是因财生官。" },
-    { "id": "cycle", "title": "4. 当前运势周期分析", "content": "重点分析流年时机把握、近期财运机会点、谨慎期以及命理风险预警（煞星冲克、化忌影响、破财风险）。" },
-    { "id": "strategy", "title": "5. 财富与投资策略", "content": "定位投资风格，列出适合的投资类型与命理依据，明确应规避的投资类型。" },
-    { "id": "markets", "title": "6. 行业与市场适配度", "content": "针对A股、美股、港股分别推荐的核心行业及其五行属性。" },
-    { "id": "picks", "title": "7. 个股/ETF精选及择时", "content": "推荐不超过10个标的（含代码），简述理由，并给出${analysisYear}年内的买入/卖出时机建议。" },
-    { "id": "monthly", "title": "8. 未来流月投资详表", "content": "从${analysisYear}年${currentMonth}月开始，列出连续6个月的运势评级与操作建议。" }
+    { "id": "traits", "title": "1. 命主特质识别", "content": "详细分析..." },
+    { "id": "wealth", "title": "2. 财运格局深度解读", "content": "..." },
+    { "id": "career", "title": "3. 事业运势与财官联动", "content": "..." },
+    { "id": "cycle", "title": "4. 当前运势周期分析", "content": "..." },
+    { "id": "strategy", "title": "5. 财富与投资策略", "content": "..." },
+    { "id": "markets", "title": "6. 行业与市场适配度", "content": "..." },
+    { "id": "picks", "title": "7. 个股/ETF精选及择时", "content": "..." },
+    { "id": "monthly", "title": "8. 未来流月投资详表", "content": "..." }
   ]
 }
 
 要求：
 1. 所有的分析必须严格基于 **${analysisYear}年**。
 2. content 字段必须为纯文本字符串，使用 \\n 换行，严禁嵌套任何 JSON 对象或数组。
-3. 语言风格：将命理术语与金融术语无缝衔接，专业且极具穿透力。`;
+`;
 
   const userPrompt = `请基于以下命盘生成深度财富分析报告：\n${chartDescription}`;
 
   try {
-    // 🔥 发送请求给后端代理
     const response = await fetch('/api/analyze', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        apiKey: apiKey || '', // 允许为空
+        apiKey: apiKey || '',
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
@@ -73,15 +100,20 @@ JSON 结构规范：
     });
 
     if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.error || `请求失败: ${response.status}`);
+        throw new Error(`请求失败: ${response.status}`);
     }
 
-    const data = await response.json();
+    // 🔥 使用流式读取，绕过 504 超时
+    const rawContent = await readStreamResponse(response);
     
-    // 解析 JSON 结果
-    const rawContent = data.choices[0].message.content;
-    const parsed = JSON.parse(rawContent);
+    // 解析 JSON
+    let parsed;
+    try {
+        parsed = JSON.parse(rawContent);
+    } catch (e) {
+        console.error("JSON Parse Error:", e, rawContent);
+        throw new Error("报告生成不完整，请重试");
+    }
 
     const processedSections = (parsed.sections || []).map((s: any) => ({
       id: s.id || String(Math.random()),
@@ -98,8 +130,8 @@ JSON 结构规范：
       sections: processedSections
     };
 
-  } catch (e) {
+  } catch (e: any) {
     console.error("AI Request Failed:", e);
-    throw e;
+    throw new Error(`生成失败: ${e.message || "未知错误"}`);
   }
 };
