@@ -39,6 +39,9 @@ const mapProfileToDb = (profile: UserProfile, userId: string) => ({
   updated_at: new Date().toISOString()
 });
 
+/**
+ * 获取档案
+ */
 export const getArchives = async (): Promise<UserProfile[]> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
@@ -55,6 +58,9 @@ export const getArchives = async (): Promise<UserProfile[]> => {
   return data?.map(mapDbToProfile) || [];
 };
 
+/**
+ * 保存档案
+ */
 export const saveArchive = async (profile: UserProfile): Promise<UserProfile[]> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
@@ -63,16 +69,13 @@ export const saveArchive = async (profile: UserProfile): Promise<UserProfile[]> 
   }
 
   const dbData = mapProfileToDb(profile, user.id);
-  // 检查是否为有效的 UUID
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(profile.id);
 
   let error;
   if (isUUID) {
-      // 旧档案：更新
       const { error: updateErr } = await supabase.from('archives').update(dbData).eq('id', profile.id);
       error = updateErr;
   } else {
-      // 新档案：插入（不传 id，由数据库生成）
       const { error: insertErr } = await supabase.from('archives').insert(dbData);
       error = insertErr;
   }
@@ -102,4 +105,53 @@ export const saveAiReportToArchive = async (profileId: string, reportContent: st
     });
   if (error) console.error('报告保存失败:', error);
   return getArchives();
+};
+
+// --- 🔥 新增：VIP 云端同步功能 ---
+
+/**
+ * 获取当前用户的 VIP 状态
+ */
+export const getVipStatus = async (): Promise<boolean> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return false;
+
+    // 查询 profiles 表
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('is_vip')
+        .eq('id', user.id)
+        .maybeSingle(); // 使用 maybeSingle 防止数据不存在时报错
+
+    if (error) {
+        console.error("查询 VIP 状态失败:", error);
+        return false;
+    }
+    
+    return data?.is_vip || false;
+};
+
+/**
+ * 在云端激活 VIP
+ */
+export const activateVipOnCloud = async (): Promise<boolean> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return false;
+
+    // 更新或插入 profile
+    const { error } = await supabase
+        .from('profiles')
+        .upsert({
+            id: user.id,
+            email: user.email,
+            is_vip: true,
+            updated_at: new Date().toISOString()
+        });
+
+    if (error) {
+        console.error("激活 VIP 失败:", error);
+        alert(`激活失败: ${error.message}`);
+        return false;
+    }
+    return true;
 };

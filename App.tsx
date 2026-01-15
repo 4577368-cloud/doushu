@@ -10,7 +10,8 @@ import { AppTab, ChartSubTab, UserProfile, BaziChart, Gender, ModalData, GanZhi,
 import { calculateBazi, interpretAnnualPillar, interpretLuckPillar, interpretYearPillar, interpretMonthPillar, interpretDayPillar, interpretHourPillar } from './services/baziService';
 import { analyzeBaziStructured, BaziReport as AiBaziReport } from './services/geminiService';
 import { sendChatMessage, ChatMessage } from './services/chatService';
-import { getArchives, saveArchive, deleteArchive, saveAiReportToArchive, updateArchive } from './services/storageService';
+// 引入存储服务 (包含 VIP 检查)
+import { getArchives, saveArchive, deleteArchive, saveAiReportToArchive, updateArchive, getVipStatus, activateVipOnCloud } from './services/storageService';
 // 引入图标
 import { Activity, BrainCircuit, RotateCcw, Info, X, Sparkles, Sun, Trash2, MapPin, Map, History, Eye, EyeOff, Compass, Calendar, Clock, Check, BarChart3, CheckCircle, FileText, ClipboardCopy, Maximize2, ChevronRight, User, Edit2, Plus, Tag, ShieldCheck, Crown, Send, MessageCircle, HelpCircle, Gem, ArrowLeftRight, GitMerge, LogOut, Mail, Cloud, Save, AlertTriangle } from 'lucide-react';
 // 引入常量
@@ -19,14 +20,18 @@ import { CHINA_LOCATIONS, FIVE_ELEMENTS, SHEN_SHA_DESCRIPTIONS } from './service
 import ZiweiView from './components/ZiweiView';
 import { BaziAnalysisView } from './components/BaziAnalysisView';
 
-// --- 🔥 关键新增：防白屏错误边界组件 ---
+// --- Error Boundary (防白屏) ---
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, error: any }> {
   constructor(props: any) {
     super(props);
     this.state = { hasError: false, error: null };
   }
-  static getDerivedStateFromError(error: any) { return { hasError: true, error }; }
-  componentDidCatch(error: any, errorInfo: any) { console.error("Uncaught error:", error, errorInfo); }
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("Uncaught error:", error, errorInfo);
+  }
   render() {
     if (this.state.hasError) {
       return (
@@ -36,7 +41,12 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
           <p className="text-xs text-rose-600 mb-4 bg-white p-3 rounded border border-rose-200 w-full overflow-auto text-left font-mono">
             {this.state.error?.toString() || "未知错误"}
           </p>
-          <button onClick={() => window.location.reload()} className="px-4 py-2 bg-rose-600 text-white rounded-lg shadow font-bold text-sm">刷新页面重试</button>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="px-4 py-2 bg-rose-600 text-white rounded-lg shadow font-bold text-sm"
+          >
+            刷新页面重试
+          </button>
         </div>
       );
     }
@@ -44,19 +54,27 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
   }
 }
 
-// --- 基础工具组件 ---
+// --- 基础组件 ---
 const ElementText: React.FC<{ text: string; className?: string; showFiveElement?: boolean }> = ({ text, className = '', showFiveElement = false }) => {
   if (!text) return null;
   const element = FIVE_ELEMENTS[text] || text;
   const colorMap: Record<string, string> = {
-    '木': 'text-green-600', '火': 'text-red-600', '土': 'text-amber-700', '金': 'text-orange-500', '水': 'text-blue-600'
+    '木': 'text-green-600', 
+    '火': 'text-red-600', 
+    '土': 'text-amber-700', 
+    '金': 'text-orange-500', 
+    '水': 'text-blue-600'
   };
   const colorClass = colorMap[element] || 'text-stone-800';
   
   return (
     <div className={`inline-flex flex-col items-center ${className}`}>
       <span className={colorClass}>{text}</span>
-      {showFiveElement && <span className={`text-[8px] scale-90 leading-none ${colorClass}`}>({element})</span>}
+      {showFiveElement && (
+        <span className={`text-[8px] scale-90 leading-none ${colorClass}`}>
+          ({element})
+        </span>
+      )}
     </div>
   );
 };
@@ -65,14 +83,19 @@ const ShenShaBadge: React.FC<{ name: string }> = ({ name }) => {
   const isAuspicious = ['天乙', '太极', '文昌', '福星', '天德', '月德', '禄', '将星', '金舆', '天厨'].some(k => name.includes(k));
   const isInauspicious = ['劫煞', '灾煞', '孤辰', '寡宿', '羊刃', '元辰', '亡神', '丧门', '吊客', '白虎', '地空', '地劫'].some(k => name.includes(k));
   const isPeach = ['桃花', '红艳', '咸池'].some(k => name.includes(k));
+  
   let style = "bg-stone-100 text-stone-600 border-stone-200"; 
   if (isAuspicious) style = "bg-emerald-50 text-emerald-800 border-emerald-200 font-bold";
   else if (isInauspicious) style = "bg-rose-50 text-rose-800 border-rose-200 font-bold";
   else if (isPeach) style = "bg-pink-50 text-pink-800 border-pink-200 font-bold";
-  return <span className={`text-[8px] px-1 py-0.5 rounded border whitespace-nowrap leading-none ${style}`}>{name.length > 2 ? name.slice(0, 2) : name}</span>;
+  
+  return (
+    <span className={`text-[8px] px-1 py-0.5 rounded border whitespace-nowrap leading-none ${style}`}>
+      {name.length > 2 ? name.slice(0, 2) : name}
+    </span>
+  );
 };
 
-// 星运颜色辅助函数
 const getLifeStageStyle = (stage: string) => {
   if (['帝旺', '临官'].includes(stage)) return 'text-rose-600 bg-rose-50 border border-rose-100';
   if (['长生', '冠带'].includes(stage)) return 'text-amber-600 bg-amber-50 border border-amber-100';
@@ -81,7 +104,6 @@ const getLifeStageStyle = (stage: string) => {
   return 'text-stone-400 bg-stone-50 border border-stone-100';
 };
 
-// 智能排版渲染器 (支持自定义颜色 & 深色模式适配)
 const SmartTextRenderer: React.FC<{ content: string; className?: string }> = ({ content, className = 'text-stone-700' }) => {
   if (!content) return null;
   const lines = content.split('\n');
@@ -92,23 +114,29 @@ const SmartTextRenderer: React.FC<{ content: string; className?: string }> = ({ 
       {lines.map((line, idx) => {
         if (line.trim() === '') return <div key={idx} className="h-1" />;
         const isHeader = line.match(/^(\p{Emoji}|🎯|⚡|🌊|🌟|💼|💰|💕|#)/u);
+        
         if (isHeader) {
            return (
              <div key={idx} className={`mt-4 first:mt-0 pl-3 py-1.5 rounded-r-lg border-l-2 ${
-                 isDarkBg 
-                    ? 'bg-white/10 border-amber-400' 
-                    : 'bg-stone-100 border-indigo-400'
+                 isDarkBg ? 'bg-white/10 border-amber-400' : 'bg-stone-100 border-indigo-400'
              }`}>
-                <span className={`font-bold ${isDarkBg ? 'text-amber-100' : 'text-stone-900'} opacity-90`}>{line.replace(/#/g, '')}</span>
+                <span className={`font-bold ${isDarkBg ? 'text-amber-100' : 'text-stone-900'} opacity-90`}>
+                    {line.replace(/#/g, '')}
+                </span>
              </div>
            );
         }
+        
         const parts = line.split(/(\*\*.*?\*\*)/g);
         return (
           <p key={idx} className="text-justify">
             {parts.map((part, i) => {
               if (part.startsWith('**') && part.endsWith('**')) {
-                return <span key={i} className={`font-bold mx-0.5 ${isDarkBg ? 'text-amber-300' : 'text-indigo-700'}`}>{part.slice(2, -2)}</span>;
+                return (
+                    <span key={i} className={`font-bold mx-0.5 ${isDarkBg ? 'text-amber-300' : 'text-indigo-700'}`}>
+                        {part.slice(2, -2)}
+                    </span>
+                );
               }
               return part;
             })}
@@ -119,7 +147,40 @@ const SmartTextRenderer: React.FC<{ content: string; className?: string }> = ({ 
   );
 };
 
-// --- VIP 专属 Header (黑金配色) ---
+// --- CoreInfoCard 组件 (命盘核心信息) ---
+const CoreInfoCard: React.FC<{ profile: UserProfile; chart: BaziChart }> = ({ profile, chart }) => (
+    <div className="bg-white border border-stone-300 rounded-2xl overflow-hidden shadow-sm">
+        <div className="bg-stone-100 border-b border-stone-300 px-3 py-2 flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+                <Info size={14} className="text-stone-600" />
+                <span className="font-black text-[10px] text-stone-700 uppercase tracking-wider">命盘核心</span>
+            </div>
+            <div className="text-[9px] font-black text-indigo-800 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200">
+                {profile.birthDate}
+            </div>
+        </div>
+        <div className="p-4 text-xs text-stone-800 space-y-3">
+            <div className="grid grid-cols-3 gap-2">
+                <div className="flex flex-col items-center gap-0.5 bg-stone-50 p-2 rounded-xl border border-stone-200">
+                    <span className="text-[8px] text-stone-500 font-black">命宫</span>
+                    <span className="font-black text-indigo-950 text-sm">{chart.mingGong}</span>
+                </div>
+                <div className="flex flex-col items-center gap-0.5 bg-stone-50 p-2 rounded-xl border border-stone-200">
+                    <span className="text-[8px] text-stone-500 font-black">身宫</span>
+                    <span className="font-black text-teal-950 text-sm">{chart.shenGong}</span>
+                </div>
+                <div className="flex flex-col items-center gap-0.5 bg-stone-50 p-2 rounded-xl border border-stone-200">
+                    <span className="text-[8px] text-stone-500 font-black">胎元</span>
+                    <span className="font-black text-rose-950 text-sm">{chart.taiYuan}</span>
+                </div>
+            </div>
+            <div className="bg-amber-50/50 p-2 rounded-xl border border-amber-200 text-amber-950 font-black text-center text-[11px] tracking-wide">
+                {chart.startLuckText}
+            </div>
+        </div>
+    </div>
+);
+
 const AppHeader: React.FC<{ title: string; rightAction?: React.ReactNode; isVip: boolean }> = ({ title, rightAction, isVip }) => (
   <header className={`sticky top-0 z-50 px-5 h-16 flex items-center justify-between transition-all duration-500 ${isVip ? 'bg-[#1c1917] border-b border-amber-900/30 shadow-2xl' : 'bg-white/90 backdrop-blur-md border-b border-stone-200 text-stone-900'}`}>
     <h1 className={`text-lg font-serif font-black tracking-wider flex items-center gap-2.5 ${isVip ? 'text-amber-100' : 'text-stone-900'}`}>
@@ -129,7 +190,9 @@ const AppHeader: React.FC<{ title: string; rightAction?: React.ReactNode; isVip:
               <Crown size={20} className="text-amber-400 fill-amber-400" />
           </div>
       )}
-      <span className={isVip ? "bg-clip-text text-transparent bg-gradient-to-r from-amber-100 via-amber-300 to-amber-100" : ""}>{title}</span>
+      <span className={isVip ? "bg-clip-text text-transparent bg-gradient-to-r from-amber-100 via-amber-300 to-amber-100" : ""}>
+          {title}
+      </span>
     </h1>
     <div className="flex items-center gap-2">
       {rightAction}
@@ -137,7 +200,6 @@ const AppHeader: React.FC<{ title: string; rightAction?: React.ReactNode; isVip:
   </header>
 );
 
-// --- VIP 激活弹窗 (带价格) ---
 const VipActivationModal: React.FC<{ onClose: () => void; onActivate: () => void }> = ({ onClose, onActivate }) => {
     const [code, setCode] = useState('');
     const [error, setError] = useState('');
@@ -191,14 +253,13 @@ const VipActivationModal: React.FC<{ onClose: () => void; onActivate: () => void
     );
 };
 
-// --- 🔥 AI 聊天界面 (流式响应 + 历史记录缓存) ---
+// --- AI Chat ---
 const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
-    // 1. 初始化时尝试从 localStorage 读取历史记录
     const [messages, setMessages] = useState<ChatMessage[]>(() => {
         const key = `chat_history_${chart.profileId}`;
         const saved = localStorage.getItem(key);
-        if (saved) {
-            try { return JSON.parse(saved); } catch (e) { console.error(e); }
+        if (saved) { 
+            try { return JSON.parse(saved); } catch (e) { console.error(e); } 
         }
         return [
             { role: 'assistant', content: `尊贵的 VIP 用户，您好！\n我是您的专属命理师。我已经深度研读了您的命盘（${chart.dayMaster}日主，${chart.pattern.name}），请问您今天想了解哪方面的运势？` }
@@ -210,67 +271,52 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
     const [suggestions, setSuggestions] = useState<string[]>(['我的事业运如何？', '最近财运怎么样？', '感情方面有桃花吗？']);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    // 2. 自动保存
-    useEffect(() => {
-        const key = `chat_history_${chart.profileId}`;
-        localStorage.setItem(key, JSON.stringify(messages));
-        scrollToBottom();
+    useEffect(() => { 
+        const key = `chat_history_${chart.profileId}`; 
+        localStorage.setItem(key, JSON.stringify(messages)); 
+        scrollToBottom(); 
     }, [messages, chart.profileId]);
 
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    };
+    const scrollToBottom = () => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); };
 
     const handleSend = async (contentOverride?: string) => {
         const msgContent = contentOverride || input;
         if (!msgContent.trim() || loading) return;
-         
+        
         const userMsg: ChatMessage = { role: 'user', content: msgContent };
         setMessages(prev => [...prev, userMsg]);
         setInput('');
-        setSuggestions([]); // 发送前清空建议
+        setSuggestions([]);
         setLoading(true);
-
+        
         let fullResponseBuffer = "";
 
         try {
             const contextMessages = [...messages, userMsg].map(m => ({ role: m.role, content: m.content })).slice(-10);
-             
             setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
-             
+            
             await sendChatMessage(contextMessages, chart, (chunk) => {
                 fullResponseBuffer += chunk;
                 const parts = fullResponseBuffer.split('|||');
-                const displayContent = parts[0]; 
-                const suggestionRaw = parts[1];
-
                 setMessages(prev => {
                     const newMsgs = [...prev];
                     const lastMsg = newMsgs[newMsgs.length - 1];
-                    if (lastMsg.role === 'assistant') {
-                        lastMsg.content = displayContent;
-                    }
+                    if (lastMsg.role === 'assistant') lastMsg.content = parts[0];
                     return newMsgs;
                 });
-
-                if (suggestionRaw) {
-                    const newSuggestions = suggestionRaw.split(/[;；]/).map(s => s.trim()).filter(s => s.length > 0);
-                    if (newSuggestions.length > 0) {
-                        setSuggestions(newSuggestions);
-                    }
+                if (parts[1]) {
+                    const newSuggestions = parts[1].split(/[;；]/).map(s => s.trim()).filter(s => s.length > 0);
+                    if (newSuggestions.length > 0) setSuggestions(newSuggestions);
                 }
             });
-
         } catch (error) {
-            setMessages(prev => {
-                const newMsgs = [...prev];
-                if(newMsgs[newMsgs.length-1].content === '') {
-                     newMsgs[newMsgs.length-1].content = '抱歉，连接天机（服务器）时出现波动，请稍后再试。';
-                }
-                return newMsgs;
+            setMessages(prev => { 
+                const newMsgs = [...prev]; 
+                if(newMsgs[newMsgs.length-1].content === '') newMsgs[newMsgs.length-1].content = '抱歉，连接天机（服务器）时出现波动，请稍后再试。'; 
+                return newMsgs; 
             });
-        } finally {
-            setLoading(false);
+        } finally { 
+            setLoading(false); 
         }
     };
 
@@ -285,14 +331,9 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
                             </div>
                         )}
                         <div className={`max-w-[85%] p-4 rounded-2xl text-[14px] leading-relaxed shadow-sm ${
-                            msg.role === 'user' 
-                                ? 'bg-indigo-600 text-white rounded-tr-none shadow-indigo-200'
-                                : 'bg-white text-stone-800 rounded-tl-none border border-stone-100 shadow-stone-200'
+                            msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none shadow-indigo-200' : 'bg-white text-stone-800 rounded-tl-none border border-stone-100 shadow-stone-200'
                         }`}>
-                            <SmartTextRenderer 
-                                content={msg.content} 
-                                className={msg.role === 'user' ? 'text-white' : 'text-stone-800'} 
-                            />
+                            <SmartTextRenderer content={msg.content} className={msg.role === 'user' ? 'text-white' : 'text-stone-800'} />
                         </div>
                     </div>
                 ))}
@@ -308,16 +349,12 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
                 )}
                 <div ref={messagesEndRef} />
             </div>
-             
+            
             <div className="p-3 bg-white border-t border-stone-200 shadow-[0_-4px_20px_rgba(0,0,0,0.02)]">
                 {suggestions.length > 0 && (
                     <div className="flex gap-2 overflow-x-auto no-scrollbar mb-3 px-1 animate-in fade-in slide-in-from-bottom-2">
                         {suggestions.map((s, i) => (
-                            <button 
-                                key={i} 
-                                onClick={() => handleSend(s)}
-                                className="whitespace-nowrap px-3 py-1.5 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-full border border-indigo-100 hover:bg-indigo-100 transition-colors flex items-center gap-1 active:scale-95"
-                            >
+                            <button key={i} onClick={() => handleSend(s)} className="whitespace-nowrap px-3 py-1.5 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-full border border-indigo-100 hover:bg-indigo-100 transition-colors flex items-center gap-1 active:scale-95">
                                 <HelpCircle size={10} /> {s}
                             </button>
                         ))}
@@ -325,14 +362,15 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
                 )}
                 <div className="flex gap-2 items-end">
                     <textarea value={input} onChange={e => setInput(e.target.value)} placeholder="请输入您的问题..." className="flex-1 bg-stone-100 border-transparent focus:bg-white focus:border-stone-300 rounded-2xl px-4 py-3 text-sm outline-none resize-none max-h-24 min-h-[48px] transition-all" rows={1} onKeyDown={e => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}/>
-                    <button onClick={() => handleSend()} disabled={loading || !input.trim()} className={`p-3 rounded-full h-12 w-12 flex items-center justify-center transition-all ${!input.trim() ? 'bg-stone-200 text-stone-400' : 'bg-stone-900 text-amber-400 shadow-lg active:scale-95 hover:bg-stone-800'}`}><Send size={20} className={input.trim() ? "ml-0.5" : ""} /></button>
+                    <button onClick={() => handleSend()} disabled={loading || !input.trim()} className={`p-3 rounded-full h-12 w-12 flex items-center justify-center transition-all ${!input.trim() ? 'bg-stone-200 text-stone-400' : 'bg-stone-900 text-amber-400 shadow-lg active:scale-95 hover:bg-stone-800'}`}>
+                        <Send size={20} className={input.trim() ? "ml-0.5" : ""} />
+                    </button>
                 </div>
             </div>
         </div>
     );
 };
 
-// --- 复用的组件 ---
 const ReportHistoryModal: React.FC<{ report: any; onClose: () => void }> = ({ report, onClose }) => {
     if (!report) return null;
     return (
@@ -362,6 +400,7 @@ const ReportHistoryModal: React.FC<{ report: any; onClose: () => void }> = ({ re
     );
 };
 
+// --- Bazi Detail Components ---
 const DetailModal: React.FC<{ data: ModalData; chart: BaziChart | null; onClose: () => void }> = ({ data, chart, onClose }) => {
   if (!chart) return null;
   let interp;
@@ -375,11 +414,15 @@ const DetailModal: React.FC<{ data: ModalData; chart: BaziChart | null; onClose:
                data.pillarName.includes('日') ? interpretDayPillar(chart) : 
                data.pillarName.includes('时') ? interpretHourPillar(chart) : null;
   }
+  
   const [copied, setCopied] = useState(false);
-  const handleCopyText = () => {
-    const textToCopy = interp?.integratedSummary || "";
-    navigator.clipboard.writeText(textToCopy).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  const handleCopyText = () => { 
+      navigator.clipboard.writeText(interp?.integratedSummary || "").then(() => { 
+          setCopied(true); 
+          setTimeout(() => setCopied(false), 2000); 
+      }); 
   };
+  
   if (!interp) return null;
 
   return (
@@ -387,9 +430,13 @@ const DetailModal: React.FC<{ data: ModalData; chart: BaziChart | null; onClose:
       <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden border border-stone-200 animate-slide-up flex flex-col max-h-[85vh]">
         <div className="p-5 border-b border-stone-100 flex justify-between items-center bg-white/90 backdrop-blur sticky top-0 z-10">
-          <div className="flex items-center gap-2"><div className="w-1.5 h-4 bg-indigo-600 rounded-full" /><span className="text-sm font-black text-stone-900 uppercase tracking-widest">{data.pillarName}深度解析</span></div>
+          <div className="flex items-center gap-2">
+              <div className="w-1.5 h-4 bg-indigo-600 rounded-full" />
+              <span className="text-sm font-black text-stone-900 uppercase tracking-widest">{data.pillarName}深度解析</span>
+          </div>
           <button onClick={onClose} className="p-2 rounded-full bg-stone-50 text-stone-400 hover:text-stone-950 hover:bg-stone-100 transition-colors"><X size={18}/></button>
         </div>
+        
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-6">
           <div className="flex justify-center items-center gap-6 bg-gradient-to-br from-stone-50 to-white py-4 rounded-3xl border border-stone-200 shadow-sm shrink-0">
             <div className="flex flex-col items-center"><ElementText text={data.ganZhi.gan} className="text-4xl font-serif font-black" showFiveElement /></div>
@@ -397,28 +444,43 @@ const DetailModal: React.FC<{ data: ModalData; chart: BaziChart | null; onClose:
             <div className="flex flex-col items-center"><ElementText text={data.ganZhi.zhi} className="text-4xl font-serif font-black" showFiveElement /></div>
             <div className="w-px h-12 bg-stone-200" />
             <div className="flex flex-col items-center justify-center text-center gap-1">
-              <span className="text-[10px] font-black text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-lg">{data.pillarName === '日柱' ? '日元' : data.ganZhi.shiShenGan}</span>
-              <span className="text-[10px] text-stone-500 font-medium">{data.ganZhi.naYin}</span>
-              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${['帝旺','临官','冠带','长生'].includes(data.ganZhi.lifeStage) ? 'bg-red-50 text-red-600' : 'bg-stone-100 text-stone-500'}`}>{data.ganZhi.lifeStage}</span>
+                <span className="text-[10px] font-black text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-lg">
+                    {data.pillarName === '日柱' ? '日元' : data.ganZhi.shiShenGan}
+                </span>
+                <span className="text-[10px] text-stone-500 font-medium">{data.ganZhi.naYin}</span>
+                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${['帝旺','临官','冠带','长生'].includes(data.ganZhi.lifeStage) ? 'bg-red-50 text-red-600' : 'bg-stone-100 text-stone-500'}`}>
+                    {data.ganZhi.lifeStage}
+                </span>
             </div>
           </div>
+          
           <div className="space-y-6">
             <section className="space-y-3">
               <div className="flex justify-between items-center px-1">
-                <h5 className="text-xs font-black text-stone-800 flex items-center gap-1.5 uppercase tracking-wider"><CheckCircle size={14} className="text-emerald-500" /> 大师断语</h5>
-                <button onClick={handleCopyText} className={`flex items-center gap-1 text-[10px] font-bold transition-all px-2.5 py-1 rounded-full ${copied ? 'bg-emerald-600 text-white' : 'bg-stone-100 text-stone-500 hover:bg-stone-200'}`}>{copied ? <Check size={12}/> : <ClipboardCopy size={12}/>} {copied ? '已复制' : '复制'}</button>
+                  <h5 className="text-xs font-black text-stone-800 flex items-center gap-1.5 uppercase tracking-wider">
+                      <CheckCircle size={14} className="text-emerald-500" /> 大师断语
+                  </h5>
+                  <button onClick={handleCopyText} className={`flex items-center gap-1 text-[10px] font-bold transition-all px-2.5 py-1 rounded-full ${copied ? 'bg-emerald-600 text-white' : 'bg-stone-100 text-stone-500 hover:bg-stone-200'}`}>
+                      {copied ? <Check size={12}/> : <ClipboardCopy size={12}/>} {copied ? '已复制' : '复制'}
+                  </button>
               </div>
               <div className="bg-white p-1 rounded-2xl"><SmartTextRenderer content={interp.integratedSummary} /></div>
             </section>
+            
             {data.shenSha.length > 0 && (
-              <section className="space-y-3 pt-2 border-t border-stone-100">
-                <h5 className="text-xs font-black text-stone-800 flex items-center gap-1.5 uppercase tracking-wider px-1"><Sparkles size={14} className="text-amber-500" /> 神煞加持</h5>
-                <div className="grid grid-cols-1 gap-2.5">
-                  {data.shenSha.map(s => (
-                    <div key={s} className="flex gap-3 items-start p-3 bg-stone-50/50 border border-stone-100 rounded-xl"><div className="shrink-0 pt-0.5"><ShenShaBadge name={s}/></div><p className="text-[11px] text-stone-600 leading-normal font-medium">{SHEN_SHA_DESCRIPTIONS[s] || "此星入命，主命局有特定之感应。"}</p></div>
-                  ))}
-                </div>
-              </section>
+                <section className="space-y-3 pt-2 border-t border-stone-100">
+                    <h5 className="text-xs font-black text-stone-800 flex items-center gap-1.5 uppercase tracking-wider px-1">
+                        <Sparkles size={14} className="text-amber-500" /> 神煞加持
+                    </h5>
+                    <div className="grid grid-cols-1 gap-2.5">
+                        {data.shenSha.map(s => (
+                            <div key={s} className="flex gap-3 items-start p-3 bg-stone-50/50 border border-stone-100 rounded-xl">
+                                <div className="shrink-0 pt-0.5"><ShenShaBadge name={s}/></div>
+                                <p className="text-[11px] text-stone-600 leading-normal font-medium">{SHEN_SHA_DESCRIPTIONS[s] || "此星入命，主命局有特定之感应。"}</p>
+                            </div>
+                        ))}
+                    </div>
+                </section>
             )}
           </div>
         </div>
@@ -427,724 +489,744 @@ const DetailModal: React.FC<{ data: ModalData; chart: BaziChart | null; onClose:
   );
 };
 
-// --- 五行强弱面板 ---
 const BalancePanel: React.FC<{ balance: BalanceAnalysis; wuxing: Record<string, number>; dm: string }> = ({ balance, wuxing, dm }) => {
-  const elements = ['木', '火', '土', '金', '水'];
-  return (
-    <div className="bg-white border border-stone-300 rounded-2xl p-4 shadow-sm space-y-3">
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-2"><BarChart3 size={14} className="text-stone-600"/><span className="text-[10px] font-black text-stone-700 uppercase tracking-widest">能量均衡分析</span></div>
-        <div className="px-2.5 py-0.5 bg-stone-900 text-white rounded-full text-[9px] font-black uppercase shadow-sm">日元 {dm} · {balance.dayMasterStrength.level}</div>
-      </div>
-      <div className="grid grid-cols-5 gap-1.5">
-        {elements.map(el => (
-          <div key={el} className="flex flex-col items-center gap-1.5 p-1.5 rounded-xl bg-stone-50 border border-stone-200 shadow-inner"><ElementText text={el} className="font-black text-[10px]" /><div className="text-[9px] font-black text-stone-800 bg-white px-1.5 rounded-full border border-stone-100">{wuxing[el] || 0}</div></div>
-        ))}
-      </div>
-      <div className="bg-indigo-50/40 p-3 rounded-xl border border-indigo-100/50">
-        <div className="flex flex-wrap items-center gap-1.5 mb-1.5"><span className="text-[9px] font-black text-indigo-900 bg-indigo-100/50 px-1.5 py-0.5 rounded uppercase">喜用</span>{balance.yongShen.map(s => <span key={s} className="text-[11px] font-bold text-indigo-950 flex items-center gap-0.5"><div className="w-1 h-1 rounded-full bg-emerald-500"/>{s}</span>)}</div>
-        <p className="text-[11px] text-indigo-900/80 leading-snug font-bold italic">“{balance.advice}”</p>
-      </div>
-    </div>
-  );
+  const elements = ['木', '火', '土', '金', '水'];
+  return (
+    <div className="bg-white border border-stone-300 rounded-2xl p-4 shadow-sm space-y-3">
+      <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+              <BarChart3 size={14} className="text-stone-600"/>
+              <span className="text-[10px] font-black text-stone-700 uppercase tracking-widest">能量均衡分析</span>
+          </div>
+          <div className="px-2.5 py-0.5 bg-stone-900 text-white rounded-full text-[9px] font-black uppercase shadow-sm">
+              日元 {dm} · {balance.dayMasterStrength.level}
+          </div>
+      </div>
+      <div className="grid grid-cols-5 gap-1.5">
+          {elements.map(el => (
+              <div key={el} className="flex flex-col items-center gap-1.5 p-1.5 rounded-xl bg-stone-50 border border-stone-200 shadow-inner">
+                  <ElementText text={el} className="font-black text-[10px]" />
+                  <div className="text-[9px] font-black text-stone-800 bg-white px-1.5 rounded-full border border-stone-100">{wuxing[el] || 0}</div>
+              </div>
+          ))}
+      </div>
+      <div className="bg-indigo-50/40 p-3 rounded-xl border border-indigo-100/50">
+          <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
+              <span className="text-[9px] font-black text-indigo-900 bg-indigo-100/50 px-1.5 py-0.5 rounded uppercase">喜用</span>
+              {balance.yongShen.map(s => (
+                  <span key={s} className="text-[11px] font-bold text-indigo-950 flex items-center gap-0.5">
+                      <div className="w-1 h-1 rounded-full bg-emerald-500"/>{s}
+                  </span>
+              ))}
+          </div>
+          <p className="text-[11px] text-indigo-900/80 leading-snug font-bold italic">“{balance.advice}”</p>
+      </div>
+    </div>
+  );
 };
 
-// --- 八字四柱网格 ---
 const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart, onOpenModal }) => {
-  const pillars = [
-    { key: 'year', label: '年柱', data: chart.pillars.year },
-    { key: 'month', label: '月柱', data: chart.pillars.month },
-    { key: 'day', label: '日柱', data: chart.pillars.day },
-    { key: 'hour', label: '时柱', data: chart.pillars.hour },
-  ];
+  const pillars = [
+    { key: 'year', label: '年柱', data: chart.pillars.year }, 
+    { key: 'month', label: '月柱', data: chart.pillars.month }, 
+    { key: 'day', label: '日柱', data: chart.pillars.day }, 
+    { key: 'hour', label: '时柱', data: chart.pillars.hour }
+  ];
 
-  return (
-    <div className="bg-white border border-stone-300 rounded-3xl overflow-hidden shadow-sm mb-2">
-      {/* 表头 */}
-      <div className="grid grid-cols-5 bg-stone-100 border-b border-stone-300 text-center py-2 text-[10px] font-black text-stone-700 uppercase tracking-wider">
-        <div className="bg-stone-100 flex items-center justify-center">四柱</div>
-        {pillars.map(p => <div key={p.key}>{p.label}</div>)}
-      </div>
+  return (
+    <div className="bg-white border border-stone-300 rounded-3xl overflow-hidden shadow-sm mb-2">
+      {/* 表头 */}
+      <div className="grid grid-cols-5 bg-stone-100 border-b border-stone-300 text-center py-2 text-[10px] font-black text-stone-700 uppercase tracking-wider">
+          <div className="bg-stone-100 flex items-center justify-center">四柱</div>
+          {pillars.map(p => <div key={p.key}>{p.label}</div>)}
+      </div>
 
-      {/* 1. 天干 */}
-      <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[64px]">
-        <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">天干</div>
-        {pillars.map(p => (
-          <div key={p.key} onClick={() => onOpenModal(p.label, p.data.ganZhi, p.data.name, p.data.shenSha)} className="relative w-full flex flex-col items-center justify-center py-2 cursor-pointer hover:bg-black/5 transition-colors border-l border-stone-200">
-            <span className="absolute top-1 right-1 text-[8px] font-black text-indigo-400 scale-90">{p.data.name === '日柱' ? '日元' : p.data.ganZhi.shiShenGan}</span>
-            <ElementText text={p.data.ganZhi.gan} className="text-2xl font-black font-serif" showFiveElement />
-          </div>
-        ))}
-      </div>
+      {/* 1. 天干 */}
+      <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[64px]">
+          <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">天干</div>
+          {pillars.map(p => (
+              <div key={p.key} onClick={() => onOpenModal(p.label, p.data.ganZhi, p.data.name, p.data.shenSha)} className="relative w-full flex flex-col items-center justify-center py-2 cursor-pointer hover:bg-black/5 transition-colors border-l border-stone-200">
+                  <span className="absolute top-1 right-1 text-[8px] font-black text-indigo-400 scale-90">
+                      {p.data.name === '日柱' ? '日元' : p.data.ganZhi.shiShenGan}
+                  </span>
+                  <ElementText text={p.data.ganZhi.gan} className="text-2xl font-black font-serif" showFiveElement />
+              </div>
+          ))}
+      </div>
 
-      {/* 2. 地支 */}
-      <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[50px]">
-        <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">地支</div>
-        {pillars.map(p => (
-          <div key={p.key} onClick={() => onOpenModal(p.label, p.data.ganZhi, p.data.name, p.data.shenSha)} className="flex flex-col items-center justify-center py-2 cursor-pointer hover:bg-black/5 transition-colors border-l border-stone-200">
-            <ElementText text={p.data.ganZhi.zhi} className="text-2xl font-black font-serif" showFiveElement />
-          </div>
-        ))}
-      </div>
+      {/* 2. 地支 */}
+      <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[50px]">
+          <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">地支</div>
+          {pillars.map(p => (
+              <div key={p.key} onClick={() => onOpenModal(p.label, p.data.ganZhi, p.data.name, p.data.shenSha)} className="flex flex-col items-center justify-center py-2 cursor-pointer hover:bg-black/5 transition-colors border-l border-stone-200">
+                  <ElementText text={p.data.ganZhi.zhi} className="text-2xl font-black font-serif" showFiveElement />
+              </div>
+          ))}
+      </div>
 
-      {/* 3. 藏干 */}
-      <div className="grid grid-cols-5 border-b border-stone-200 items-stretch">
-        <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">藏干</div>
-        {pillars.map(p => (
-          <div key={p.key} className="flex flex-col items-center justify-center py-2 gap-0.5 border-l border-stone-200">
-            {p.data.ganZhi.hiddenStems.slice(0, 2).map((h, idx) => (
-              <div key={idx} className="flex items-center gap-0.5 scale-90">
-                <span className={`text-[10px] ${h.type==='主气'?'font-black':'text-stone-500'}`}>{h.stem}</span>
-                <span className="text-[8px] text-stone-400">{h.shiShen}</span>
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
+      {/* 3. 藏干 */}
+      <div className="grid grid-cols-5 border-b border-stone-200 items-stretch">
+          <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">藏干</div>
+          {pillars.map(p => (
+              <div key={p.key} className="flex flex-col items-center justify-center py-2 gap-0.5 border-l border-stone-200">
+                  {p.data.ganZhi.hiddenStems.slice(0, 2).map((h, idx) => (
+                      <div key={idx} className="flex items-center gap-0.5 scale-90">
+                          <span className={`text-[10px] ${h.type==='主气'?'font-black':'text-stone-500'}`}>{h.stem}</span>
+                          <span className="text-[8px] text-stone-400">{h.shiShen}</span>
+                      </div>
+                  ))}
+              </div>
+          ))}
+      </div>
 
-      {/* 4. 星运 */}
-      <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[30px]">
-        <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">星运</div>
-        {pillars.map(p => {
-          const styleClass = getLifeStageStyle(p.data.ganZhi.lifeStage);
-          return (
-            <div key={p.key} className="flex items-center justify-center py-1.5 border-l border-stone-200">
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-md leading-none ${styleClass}`}>{p.data.ganZhi.lifeStage}</span>
-            </div>
-          );
-        })}
-      </div>
+      {/* 4. 星运 */}
+      <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[30px]">
+          <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">星运</div>
+          {pillars.map(p => { 
+              const styleClass = getLifeStageStyle(p.data.ganZhi.lifeStage); 
+              return (
+                  <div key={p.key} className="flex items-center justify-center py-1.5 border-l border-stone-200">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-md leading-none ${styleClass}`}>
+                          {p.data.ganZhi.lifeStage}
+                      </span>
+                  </div>
+              ); 
+          })}
+      </div>
 
-      {/* 5. 神煞 */}
-      <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[40px]">
-        <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">神煞</div>
-        {pillars.map(p => (
-          <div key={p.key} onClick={() => onOpenModal(p.label, p.data.ganZhi, p.data.name, p.data.shenSha)} className="flex flex-col items-center justify-start pt-2 px-0.5 gap-1 cursor-pointer hover:bg-black/5 transition-colors border-l border-stone-200">
-            {p.data.shenSha.slice(0, 2).map((s, idx) => <ShenShaBadge key={idx} name={s} />)}
-          </div>
-        ))}
-      </div>
+      {/* 5. 神煞 */}
+      <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[40px]">
+          <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">神煞</div>
+          {pillars.map(p => (
+              <div key={p.key} onClick={() => onOpenModal(p.label, p.data.ganZhi, p.data.name, p.data.shenSha)} className="flex flex-col items-center justify-start pt-2 px-0.5 gap-1 cursor-pointer hover:bg-black/5 transition-colors border-l border-stone-200">
+                  {p.data.shenSha.slice(0, 2).map((s, idx) => <ShenShaBadge key={idx} name={s} />)}
+              </div>
+          ))}
+      </div>
 
-      {/* 6. 纳音 */}
-      <div className="grid grid-cols-5 items-stretch min-h-[30px]">
-        <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">纳音</div>
-        {pillars.map(p => (
-          <div key={p.key} className="flex items-center justify-center py-1.5 border-l border-stone-200">
-            <span className="text-[10px] text-stone-500 font-medium scale-95 whitespace-nowrap">{p.data.ganZhi.naYin}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+      {/* 6. 纳音 */}
+      <div className="grid grid-cols-5 items-stretch min-h-[30px]">
+          <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">纳音</div>
+          {pillars.map(p => (
+              <div key={p.key} className="flex items-center justify-center py-1.5 border-l border-stone-200">
+                  <span className="text-[10px] text-stone-500 font-medium scale-95 whitespace-nowrap">{p.data.ganZhi.naYin}</span>
+              </div>
+          ))}
+      </div>
+    </div>
+  );
 };
 
 // --- 5. 综合图表视图组件 (🔥 修复版：通过 props 接收全局 isSaving 状态) ---
 const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowModal: any; onSaveReport: any; onAiAnalysis: any; loadingAi: boolean; aiReport: AiBaziReport | null; isVip: boolean; onManualSave: () => void; isSaving: boolean }> = ({ profile, chart, onShowModal, onSaveReport, onAiAnalysis, loadingAi, aiReport, isVip, onManualSave, isSaving }) => {
-  const [activeSubTab, setActiveSubTab] = useState<ChartSubTab>(ChartSubTab.DETAIL);
-  const [apiKey, setApiKey] = useState(() => sessionStorage.getItem('ai_api_key') || '');
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [archives, setArchives] = useState<UserProfile[]>([]);
-  const [selectedHistoryReport, setSelectedHistoryReport] = useState<any | null>(null);
+  const [activeSubTab, setActiveSubTab] = useState<ChartSubTab>(ChartSubTab.DETAIL);
+  const [apiKey, setApiKey] = useState(() => sessionStorage.getItem('ai_api_key') || '');
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [archives, setArchives] = useState<UserProfile[]>([]);
+  const [selectedHistoryReport, setSelectedHistoryReport] = useState<any | null>(null);
 
-  useEffect(() => { 
-    getArchives().then(setArchives);
-  }, [aiReport]);
+  useEffect(() => { 
+      getArchives().then(setArchives); 
+  }, [aiReport]);
 
-  const allHistoryReports = useMemo(() => {
-      const all: any[] = [];
-      archives.forEach(user => {
-          if (user.aiReports) user.aiReports.forEach(r => all.push({ ...r, userName: user.name }));
-      });
-      return all.sort((a, b) => b.date - a.date);
-  }, [archives]);
+  const allHistoryReports = useMemo(() => {
+      const all: any[] = [];
+      archives.forEach(user => { 
+          if (user.aiReports) {
+              user.aiReports.forEach(r => all.push({ ...r, userName: user.name }));
+          }
+      });
+      return all.sort((a, b) => b.date - a.date);
+  }, [archives]);
 
-  const openDetailedModal = (title: string, gz: GanZhi, name: string, ss: string[]) => onShowModal({ title, pillarName: name, ganZhi: gz, shenSha: ss });
+  const openDetailedModal = (title: string, gz: GanZhi, name: string, ss: string[]) => onShowModal({ title, pillarName: name, ganZhi: gz, shenSha: ss });
 
-  const tabs = [
-      { id: ChartSubTab.DETAIL, label: '流年大运' },
-      { id: ChartSubTab.BASIC, label: '八字命盘' },
-      { id: ChartSubTab.ANALYSIS, label: '大师解盘' }
-  ];
-  if (isVip) tabs.push({ id: ChartSubTab.CHAT, label: 'AI 对话' });
+  const tabs = [
+      { id: ChartSubTab.DETAIL, label: '流年大运' }, 
+      { id: ChartSubTab.BASIC, label: '八字命盘' }, 
+      { id: ChartSubTab.ANALYSIS, label: '大师解盘' }
+  ];
+  if (isVip) tabs.push({ id: ChartSubTab.CHAT, label: 'AI 对话' });
 
-  const handleAiAnalysisWrapper = () => {
-      if (!isVip && !apiKey) {
-          alert("请先填写 API Key，或开通 VIP 解锁免 Key 特权");
-          return;
-      }
-      onAiAnalysis();
-  };
+  const handleAiAnalysisWrapper = () => { 
+      if (!isVip && !apiKey) { 
+          alert("请先填写 API Key，或开通 VIP 解锁免 Key 特权"); 
+          return; 
+      } 
+      onAiAnalysis(); 
+  };
 
-  return (
-    <div className="flex flex-col h-full bg-white">
-      {/* 顶部操作栏 */}
-      <div className="flex border-b border-stone-200 bg-white shadow-sm overflow-x-auto no-scrollbar justify-between items-center pr-2">
-        <div className="flex flex-1">
-            {tabs.map(tab => (
-            <button key={tab.id} onClick={() => setActiveSubTab(tab.id as ChartSubTab)} className={`flex-1 min-w-[70px] py-3 text-[11px] font-black border-b-2 transition-all ${activeSubTab === tab.id ? 'border-stone-950 text-stone-950' : 'border-transparent text-stone-500'} ${tab.id === ChartSubTab.CHAT ? 'text-indigo-600' : ''}`}>
-                {tab.id === ChartSubTab.CHAT ? <span className="flex items-center justify-center gap-1"><Sparkles size={12}/> {tab.label}</span> : tab.label}
-            </button>
-            ))}
-        </div>
-        {/* 🔥 手动保存按钮：状态由 App 传入，避免与自动保存冲突 */}
-        <button onClick={onManualSave} disabled={isSaving} className={`ml-2 px-3 py-1.5 rounded-full text-[10px] font-bold flex items-center gap-1 transition-all ${isSaving ? 'bg-emerald-100 text-emerald-700 cursor-not-allowed' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}>
-            {isSaving ? <Activity size={12} className="animate-spin"/> : <Cloud size={12}/>}
-            {isSaving ? '同步中...' : '保存档案'}
-        </button>
-      </div>
+  return (
+    <div className="flex flex-col h-full bg-white">
+      <div className="flex border-b border-stone-200 bg-white shadow-sm overflow-x-auto no-scrollbar justify-between items-center pr-2">
+        <div className="flex flex-1">
+            {tabs.map(tab => (
+            <button key={tab.id} onClick={() => setActiveSubTab(tab.id as ChartSubTab)} className={`flex-1 min-w-[70px] py-3 text-[11px] font-black border-b-2 transition-all ${activeSubTab === tab.id ? 'border-stone-950 text-stone-950' : 'border-transparent text-stone-500'} ${tab.id === ChartSubTab.CHAT ? 'text-indigo-600' : ''}`}>
+                {tab.id === ChartSubTab.CHAT ? <span className="flex items-center justify-center gap-1"><Sparkles size={12}/> {tab.label}</span> : tab.label}
+            </button>
+            ))}
+        </div>
+        {/* 🔥 手动保存按钮：状态由 App 传入，避免与自动保存冲突 */}
+        <button onClick={onManualSave} disabled={isSaving} className={`ml-2 px-3 py-1.5 rounded-full text-[10px] font-bold flex items-center gap-1 transition-all ${isSaving ? 'bg-emerald-100 text-emerald-700 cursor-not-allowed' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}>
+            {isSaving ? <Activity size={12} className="animate-spin"/> : <Cloud size={12}/>}
+            {isSaving ? '同步中...' : '保存档案'}
+        </button>
+      </div>
 
-      <div className="flex-1 overflow-y-auto bg-[#f9f9f8] p-4 pb-24" style={activeSubTab === ChartSubTab.CHAT ? { padding: 0 } : {}}>
-         {activeSubTab === ChartSubTab.DETAIL && (
-             <div className="animate-fade-in"><BaziAnalysisView chart={chart} onShowModal={openDetailedModal} /></div>
-         )}
-         {activeSubTab === ChartSubTab.BASIC && (
-            <div className="space-y-4 animate-fade-in">
-                <div className="bg-white border border-stone-300 rounded-2xl overflow-hidden shadow-sm">
-                    <div className="bg-stone-100 border-b border-stone-300 px-3 py-2 flex items-center justify-between"><div className="flex items-center gap-1.5"><Info size={14} className="text-stone-600" /><span className="font-black text-[10px] text-stone-700 uppercase tracking-wider">命盘核心</span></div><div className="text-[9px] font-black text-indigo-800 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200">{profile.birthDate}</div></div>
-                    <div className="p-4 text-xs text-stone-800 space-y-3">
-                        <div className="grid grid-cols-3 gap-2">
-                            <div className="flex flex-col items-center gap-0.5 bg-stone-50 p-2 rounded-xl border border-stone-200"><span className="text-[8px] text-stone-500 font-black">命宫</span><span className="font-black text-indigo-950 text-sm">{chart.mingGong}</span></div>
-                            <div className="flex flex-col items-center gap-0.5 bg-stone-50 p-2 rounded-xl border border-stone-200"><span className="text-[8px] text-stone-500 font-black">身宫</span><span className="font-black text-teal-950 text-sm">{chart.shenGong}</span></div>
-                            <div className="flex flex-col items-center gap-0.5 bg-stone-50 p-2 rounded-xl border border-stone-200"><span className="text-[8px] text-stone-500 font-black">胎元</span><span className="font-black text-rose-950 text-sm">{chart.taiYuan}</span></div>
-                        </div>
-                        <div className="bg-amber-50/50 p-2 rounded-xl border border-amber-200 text-amber-950 font-black text-center text-[11px] tracking-wide">{chart.startLuckText}</div>
-                    </div>
-                </div>
-                <BaziChartGrid chart={chart} onOpenModal={openDetailedModal} />
-                <BalancePanel balance={chart.balance} wuxing={chart.wuxingCounts} dm={chart.dayMaster} />
-            </div>
-         )}
-         {activeSubTab === ChartSubTab.ANALYSIS && (
-            <div className="space-y-6 animate-fade-in">
-                <div className="bg-white border border-stone-300 p-5 rounded-2xl shadow-sm">
-                    {isVip ? (
-                        <div className="mb-4 bg-gradient-to-r from-stone-900 to-stone-700 text-amber-400 p-4 rounded-xl flex items-center justify-between shadow-lg">
-                            <div className="flex items-center gap-2"><Crown size={20} fill="currentColor" /><span className="text-xs font-black tracking-wider">VIP 尊享通道已激活</span></div>
-                            <span className="text-[10px] bg-white/10 px-2 py-1 rounded text-white">免 Key 无限畅享</span>
-                        </div>
-                    ) : (
-                        <div className="relative mb-4">
-                            {!apiKey && <div className="mb-2 text-[10px] text-stone-400 flex items-center gap-1"><ShieldCheck size={12}/> 未检测到 Key，将尝试使用公共代理</div>}
-                            <input type={showApiKey?"text":"password"} value={apiKey} onChange={e => {setApiKey(e.target.value); sessionStorage.setItem('ai_api_key', e.target.value);}} placeholder="填入 API Key (VIP用户无需填写)" className="w-full bg-stone-50 border border-stone-300 p-3 rounded-xl text-sm font-sans focus:border-stone-950 outline-none shadow-inner font-black text-stone-950"/>
-                            <button onClick={()=>setShowApiKey(!showApiKey)} className="absolute right-3 top-9 text-stone-400">{showApiKey?<EyeOff size={18}/>:<Eye size={18}/>}</button>
-                        </div>
-                    )}
-                    <button onClick={() => { if(!isVip && !apiKey) return alert('请输入API Key'); onAiAnalysis(); }} disabled={loadingAi} className={`w-full py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all ${loadingAi ? 'bg-stone-100 text-stone-400' : 'bg-stone-950 text-white active:scale-95 shadow-lg'}`}>
-                      {loadingAi ? <Activity className="animate-spin" size={20}/> : <BrainCircuit size={20}/>} {loadingAi ? '正在深度推演...' : '生成大师解盘报告'}
-                    </button>
-                 </div>
-                 {aiReport && (
-                     <div className="bg-white border border-stone-300 p-6 rounded-3xl space-y-4 shadow-sm animate-slide-up">
-                         <div className="flex items-center gap-2 text-emerald-600 font-black border-b border-stone-100 pb-3"><Sparkles size={18}/> <span>本次生成结果</span></div>
-                         <div className="bg-stone-50 p-4 rounded-xl text-sm leading-relaxed text-stone-700 max-h-[300px] overflow-y-auto custom-scrollbar"><SmartTextRenderer content={aiReport.copyText} /></div>
-                         <button onClick={() => {navigator.clipboard.writeText(aiReport.copyText); alert("已复制");}} className="w-full bg-emerald-50 text-emerald-700 py-3 rounded-xl text-xs font-black border border-emerald-100 shadow-sm flex items-center justify-center gap-2"><ClipboardCopy size={14}/> 复制内容</button>
-                     </div>
-                 )}
-                 <div className="space-y-3">
-                     <div className="flex items-center gap-2 px-2"><History size={16} className="text-stone-400"/><h3 className="font-black text-stone-600 text-xs uppercase tracking-wider">全站解盘历史存档 ({allHistoryReports.length})</h3></div>
-                     {allHistoryReports.length > 0 ? (
-                         <div className="grid grid-cols-1 gap-3">
-                             {allHistoryReports.map((report, idx) => (
-                                 <div key={report.id || idx} className="bg-white border border-stone-200 p-4 rounded-2xl shadow-sm hover:shadow-md transition-all group">
-                                     <div className="flex justify-between items-start mb-2">
-                                         <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-xs border border-indigo-100">{report.userName?.[0]}</div><div><div className="font-black text-stone-900 text-sm">{report.userName}</div><div className="text-[10px] text-stone-400">{new Date(report.date).toLocaleString()}</div></div></div>
-                                         <span className="text-[10px] font-bold px-2 py-0.5 bg-stone-100 text-stone-500 rounded-full">{report.type === 'ziwei' ? '紫微' : '八字'}</span>
-                                     </div>
-                                     <div className="text-xs text-stone-500 line-clamp-2 mb-3 leading-relaxed bg-stone-50/50 p-2 rounded-lg">{report.content.slice(0, 80)}...</div>
-                                     <button onClick={() => setSelectedHistoryReport(report)} className="w-full mt-2 py-2 bg-stone-900 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1 group-hover:bg-indigo-600 transition-colors"><Maximize2 size={12}/> 查看完整报告</button>
-                                 </div>
-                             ))}
-                         </div>
-                     ) : <div className="text-center py-10 text-stone-300 text-xs italic bg-stone-50 rounded-2xl border border-stone-100 border-dashed">暂无历史生成记录</div>}
-                 </div>
-            </div>
-         )}
-         {activeSubTab === ChartSubTab.CHAT && isVip && <div className="h-full animate-fade-in"><AiChatView chart={chart} /></div>}
-      </div>
-      {selectedHistoryReport && <ReportHistoryModal report={selectedHistoryReport} onClose={() => setSelectedHistoryReport(null)} />}
-    </div>
-  );
+      <div className="flex-1 overflow-y-auto bg-[#f9f9f8] p-4 pb-24" style={activeSubTab === ChartSubTab.CHAT ? { padding: 0 } : {}}>
+         
+         {activeSubTab === ChartSubTab.DETAIL && (
+             <div className="animate-fade-in space-y-4">
+                 {/* 🔥 移动后的命盘核心板块 */}
+                 <CoreInfoCard profile={profile} chart={chart} />
+                 <BaziAnalysisView chart={chart} onShowModal={openDetailedModal} />
+             </div>
+         )}
+
+         {activeSubTab === ChartSubTab.BASIC && (
+            <div className="space-y-4 animate-fade-in">
+                {/* 移除旧的命盘核心，只保留网格和五行 */}
+                <BaziChartGrid chart={chart} onOpenModal={openDetailedModal} />
+                <BalancePanel balance={chart.balance} wuxing={chart.wuxingCounts} dm={chart.dayMaster} />
+            </div>
+         )}
+
+         {activeSubTab === ChartSubTab.ANALYSIS && (
+            <div className="space-y-6 animate-fade-in">
+                <div className="bg-white border border-stone-300 p-5 rounded-2xl shadow-sm">
+                    {isVip ? (
+                        <div className="mb-4 bg-gradient-to-r from-stone-900 to-stone-700 text-amber-400 p-4 rounded-xl flex items-center justify-between shadow-lg">
+                            <div className="flex items-center gap-2"><Crown size={20} fill="currentColor" /><span className="text-xs font-black tracking-wider">VIP 尊享通道已激活</span></div>
+                            <span className="text-[10px] bg-white/10 px-2 py-1 rounded text-white">免 Key 无限畅享</span>
+                        </div>
+                    ) : (
+                        <div className="relative mb-4">
+                            {!apiKey && <div className="mb-2 text-[10px] text-stone-400 flex items-center gap-1"><ShieldCheck size={12}/> 未检测到 Key，将尝试使用公共代理</div>}
+                            <input type={showApiKey?"text":"password"} value={apiKey} onChange={e => {setApiKey(e.target.value); sessionStorage.setItem('ai_api_key', e.target.value);}} placeholder="填入 API Key (VIP用户无需填写)" className="w-full bg-stone-50 border border-stone-300 p-3 rounded-xl text-sm font-sans focus:border-stone-950 outline-none shadow-inner font-black text-stone-950"/>
+                            <button onClick={()=>setShowApiKey(!showApiKey)} className="absolute right-3 top-9 text-stone-400">{showApiKey?<EyeOff size={18}/>:<Eye size={18}/>}</button>
+                        </div>
+                    )}
+                    <button onClick={handleAiAnalysisWrapper} disabled={loadingAi} className={`w-full py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all ${loadingAi ? 'bg-stone-100 text-stone-400' : 'bg-stone-950 text-white active:scale-95 shadow-lg'}`}>
+                      {loadingAi ? <Activity className="animate-spin" size={20}/> : <BrainCircuit size={20}/>} {loadingAi ? '正在深度推演...' : '生成大师解盘报告'}
+                    </button>
+                 </div>
+                 {aiReport && (
+                     <div className="bg-white border border-stone-300 p-6 rounded-3xl space-y-4 shadow-sm animate-slide-up">
+                         <div className="flex items-center gap-2 text-emerald-600 font-black border-b border-stone-100 pb-3"><Sparkles size={18}/> <span>本次生成结果</span></div>
+                         <div className="bg-stone-50 p-4 rounded-xl text-sm leading-relaxed text-stone-700 max-h-[300px] overflow-y-auto custom-scrollbar"><SmartTextRenderer content={aiReport.copyText} /></div>
+                         <button onClick={() => {navigator.clipboard.writeText(aiReport.copyText); alert("已复制");}} className="w-full bg-emerald-50 text-emerald-700 py-3 rounded-xl text-xs font-black border border-emerald-100 shadow-sm flex items-center justify-center gap-2"><ClipboardCopy size={14}/> 复制内容</button>
+                     </div>
+                 )}
+                 <div className="space-y-3">
+                     <div className="flex items-center gap-2 px-2"><History size={16} className="text-stone-400"/><h3 className="font-black text-stone-600 text-xs uppercase tracking-wider">全站解盘历史存档 ({allHistoryReports.length})</h3></div>
+                     {allHistoryReports.length > 0 ? (
+                         <div className="grid grid-cols-1 gap-3">
+                             {allHistoryReports.map((report, idx) => (
+                                 <div key={report.id || idx} className="bg-white border border-stone-200 p-4 rounded-2xl shadow-sm hover:shadow-md transition-all group">
+                                     <div className="flex justify-between items-start mb-2">
+                                         <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-xs border border-indigo-100">{report.userName?.[0]}</div><div><div className="font-black text-stone-900 text-sm">{report.userName}</div><div className="text-[10px] text-stone-400">{new Date(report.date).toLocaleString()}</div></div></div>
+                                         <span className="text-[10px] font-bold px-2 py-0.5 bg-stone-100 text-stone-500 rounded-full">{report.type === 'ziwei' ? '紫微' : '八字'}</span>
+                                     </div>
+                                     <div className="text-xs text-stone-500 line-clamp-2 mb-3 leading-relaxed bg-stone-50/50 p-2 rounded-lg">{report.content.slice(0, 80)}...</div>
+                                     <button onClick={() => setSelectedHistoryReport(report)} className="w-full mt-2 py-2 bg-stone-900 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1 group-hover:bg-indigo-600 transition-colors"><Maximize2 size={12}/> 查看完整报告</button>
+                                 </div>
+                             ))}
+                         </div>
+                     ) : <div className="text-center py-10 text-stone-300 text-xs italic bg-stone-50 rounded-2xl border border-stone-100 border-dashed">暂无历史生成记录</div>}
+                 </div>
+            </div>
+         )}
+         {activeSubTab === ChartSubTab.CHAT && isVip && <div className="h-full animate-fade-in"><AiChatView chart={chart} /></div>}
+      </div>
+      {selectedHistoryReport && <ReportHistoryModal report={selectedHistoryReport} onClose={() => setSelectedHistoryReport(null)} />}
+    </div>
+  );
 };
 
 // --- 6. 首页视图组件 ---
 const HomeView: React.FC<{ onGenerate: (profile: UserProfile) => void; archives: UserProfile[]; }> = ({ onGenerate, archives }) => {
-  const [name, setName] = useState('');
-  const [gender, setGender] = useState<Gender>('male');
-  const [dateInput, setDateInput] = useState(''); 
-  const [hourInput, setHourInput] = useState('12'); 
-  const [isSolarTime, setIsSolarTime] = useState(false);
-  const [province, setProvince] = useState('北京市');
-  const [city, setCity] = useState('北京');
-  const [longitude, setLongitude] = useState<number | undefined>(116.40);
-  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [name, setName] = useState('');
+  const [gender, setGender] = useState<Gender>('male');
+  const [dateInput, setDateInput] = useState(''); 
+  const [hourInput, setHourInput] = useState('12'); 
+  const [isSolarTime, setIsSolarTime] = useState(false);
+  const [province, setProvince] = useState('北京市');
+  const [city, setCity] = useState('北京');
+  const [longitude, setLongitude] = useState<number | undefined>(116.40);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
 
-  const parseDateInput = (val: string) => {
-    if (val.length !== 8) return null;
-    const year = val.substring(0, 4), month = val.substring(4, 6), day = val.substring(6, 8);
-    const y = parseInt(year), m = parseInt(month), d = parseInt(day);
-    if (y < 1900 || y > 2100 || m < 1 || m > 12 || d < 1 || d > 31) return null;
-    return { formattedDate: `${year}-${month}-${day}`, display: `${year}年${month}月${day}日` };
-  };
+  const parseDateInput = (val: string) => {
+    if (val.length !== 8) return null;
+    const year = val.substring(0, 4), month = val.substring(4, 6), day = val.substring(6, 8);
+    const y = parseInt(year), m = parseInt(month), d = parseInt(day);
+    if (y < 1900 || y > 2100 || m < 1 || m > 12 || d < 1 || d > 31) return null;
+    return { formattedDate: `${year}-${month}-${day}`, display: `${year}年${month}月${day}日` };
+  };
 
-  const parsed = parseDateInput(dateInput);
-   
-  const handleProvinceChange = (e: React.ChangeEvent<HTMLSelectElement>) => { 
-    const provName = e.target.value; setProvince(provName); 
-    const provData = CHINA_LOCATIONS.find(p => p.name === provName);
-    if (provData && provData.cities.length > 0) { 
-      setCity(provData.cities[0].name); 
-      setLongitude(provData.cities[0].longitude); 
-    }
-  };
-   
-  const handleCityChange = (e: React.ChangeEvent<HTMLSelectElement>) => { 
-    const cityName = e.target.value; setCity(cityName); 
-    const cityData = CHINA_LOCATIONS.find(p => p.name === province)?.cities.find(c => c.name === cityName); 
-    if (cityData) setLongitude(cityData.longitude); 
-  };
-   
-  const citiesForProvince = CHINA_LOCATIONS.find(p => p.name === province)?.cities || [];
+  const parsed = parseDateInput(dateInput);
+   
+  const handleProvinceChange = (e: React.ChangeEvent<HTMLSelectElement>) => { 
+    const provName = e.target.value; setProvince(provName); 
+    const provData = CHINA_LOCATIONS.find(p => p.name === provName);
+    if (provData && provData.cities.length > 0) { 
+        setCity(provData.cities[0].name); 
+        setLongitude(provData.cities[0].longitude); 
+    }
+  };
+   
+  const handleCityChange = (e: React.ChangeEvent<HTMLSelectElement>) => { 
+    const cityName = e.target.value; setCity(cityName); 
+    const cityData = CHINA_LOCATIONS.find(p => p.name === province)?.cities.find(c => c.name === cityName); 
+    if (cityData) setLongitude(cityData.longitude); 
+  };
+   
+  const citiesForProvince = CHINA_LOCATIONS.find(p => p.name === province)?.cities || [];
 
-  return (
-    <div className="flex flex-col h-full bg-[#fafaf9] overflow-y-auto no-scrollbar">
-       <div className="min-h-full flex flex-col justify-center p-6 pb-10 max-w-md mx-auto w-full">
-           <div className="text-center mb-8 mt-2">
-             <div className="w-16 h-16 mx-auto mb-4 p-0.5 border border-stone-200 rounded-2xl shadow-lg bg-white flex items-center justify-center overflow-hidden">
-               <img src="https://imgus.tangbuy.com/static/images/2026-01-10/631ac4d3602b4f508bb0cad516683714-176803435086117897846087613804795.png" className="w-full h-full object-cover" alt="Logo" />
-             </div>
-             <h2 className="text-2xl font-serif font-black text-stone-950 tracking-wider">玄枢命理</h2>
-             <p className="text-[10px] text-stone-400 mt-1 tracking-[0.25em] uppercase font-sans font-bold">Ancient Wisdom · AI Insights</p>
-           </div>
-           
-           <form onSubmit={e => { e.preventDefault(); if (!parsed) return; onGenerate({ id: Date.now().toString(), name: name || '访客', gender, birthDate: parsed.formattedDate, birthTime: `${hourInput.padStart(2, '0')}:00`, isSolarTime, province, city, longitude, createdAt: Date.now(), avatar: 'default' }); }} className="space-y-6">
-              <div className="flex gap-4">
-                <div className="flex-1 space-y-1.5">
-                  <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">姓名</label>
-                  <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 outline-none font-serif focus:border-stone-400 text-sm shadow-sm transition-all" placeholder="请输入姓名"/>
-                </div>
-                <div className="w-28 space-y-1.5">
-                  <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">乾坤</label>
-                  <div className="flex bg-white border border-stone-200 p-1 rounded-xl shadow-sm h-[46px]">
-                    <button type="button" onClick={() => setGender('male')} className={`flex-1 rounded-lg text-[11px] font-black transition-all ${gender === 'male' ? 'bg-indigo-600 text-white shadow-md' : 'text-stone-400'}`}>乾</button>
-                    <button type="button" onClick={() => setGender('female')} className={`flex-1 rounded-lg text-[11px] font-black transition-all ${gender === 'female' ? 'bg-rose-600 text-white shadow-md' : 'text-stone-400'}`}>坤</button>
-                  </div>
-                </div>
-              </div>
+  return (
+    <div className="flex flex-col h-full bg-[#fafaf9] overflow-y-auto no-scrollbar">
+       <div className="min-h-full flex flex-col justify-center p-6 pb-10 max-w-md mx-auto w-full">
+           <div className="text-center mb-8 mt-2">
+             <div className="w-16 h-16 mx-auto mb-4 p-0.5 border border-stone-200 rounded-2xl shadow-lg bg-white flex items-center justify-center overflow-hidden">
+                 <img src="https://imgus.tangbuy.com/static/images/2026-01-10/631ac4d3602b4f508bb0cad516683714-176803435086117897846087613804795.png" className="w-full h-full object-cover" alt="Logo" />
+             </div>
+             <h2 className="text-2xl font-serif font-black text-stone-950 tracking-wider">玄枢命理</h2>
+             <p className="text-[10px] text-stone-400 mt-1 tracking-[0.25em] uppercase font-sans font-bold">Ancient Wisdom · AI Insights</p>
+           </div>
+           
+           <form onSubmit={e => { e.preventDefault(); if (!parsed) return; onGenerate({ id: Date.now().toString(), name: name || '访客', gender, birthDate: parsed.formattedDate, birthTime: `${hourInput.padStart(2, '0')}:00`, isSolarTime, province, city, longitude, createdAt: Date.now(), avatar: 'default' }); }} className="space-y-6">
+              <div className="flex gap-4">
+                <div className="flex-1 space-y-1.5">
+                    <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">姓名</label>
+                    <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 outline-none font-serif focus:border-stone-400 text-sm shadow-sm transition-all" placeholder="请输入姓名"/>
+                </div>
+                <div className="w-28 space-y-1.5">
+                    <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">乾坤</label>
+                    <div className="flex bg-white border border-stone-200 p-1 rounded-xl shadow-sm h-[46px]">
+                        <button type="button" onClick={() => setGender('male')} className={`flex-1 rounded-lg text-[11px] font-black transition-all ${gender === 'male' ? 'bg-indigo-600 text-white shadow-md' : 'text-stone-400'}`}>乾</button>
+                        <button type="button" onClick={() => setGender('female')} className={`flex-1 rounded-lg text-[11px] font-black transition-all ${gender === 'female' ? 'bg-rose-600 text-white shadow-md' : 'text-stone-400'}`}>坤</button>
+                    </div>
+                </div>
+              </div>
 
-              <div className="grid grid-cols-5 gap-4">
-                 <div className="col-span-3 space-y-1.5">
-                   <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">生诞 (YYYYMMDD)</label>
-                   <div className="relative">
-                     <input type="text" inputMode="numeric" maxLength={8} value={dateInput} onChange={e => setDateInput(e.target.value.replace(/\D/g, ''))} className="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 outline-none font-sans text-base tracking-widest focus:border-stone-400 shadow-sm" placeholder="19900101" />
-                     <Calendar size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-stone-300" />
-                   </div>
-                 </div>
-                 <div className="col-span-2 space-y-1.5">
-                   <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">时辰</label>
-                   <div className="relative">
-                     <select value={hourInput} onChange={e => setHourInput(e.target.value)} className="w-full bg-white border border-stone-200 rounded-xl px-3 py-3 outline-none font-sans text-base focus:border-stone-400 shadow-sm appearance-none">
-                       {Array.from({length: 24}).map((_, i) => (<option key={i} value={i}>{i.toString().padStart(2, '0')} 时</option>))}
-                     </select>
-                     <Clock size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-300 pointer-events-none" />
-                   </div>
-                 </div>
-              </div>
+              <div className="grid grid-cols-5 gap-4">
+                 <div className="col-span-3 space-y-1.5">
+                     <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">生诞 (YYYYMMDD)</label>
+                     <div className="relative">
+                         <input type="text" inputMode="numeric" maxLength={8} value={dateInput} onChange={e => setDateInput(e.target.value.replace(/\D/g, ''))} className="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 outline-none font-sans text-base tracking-widest focus:border-stone-400 shadow-sm" placeholder="19900101" />
+                         <Calendar size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-stone-300" />
+                     </div>
+                 </div>
+                 <div className="col-span-2 space-y-1.5">
+                     <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">时辰</label>
+                     <div className="relative">
+                         <select value={hourInput} onChange={e => setHourInput(e.target.value)} className="w-full bg-white border border-stone-200 rounded-xl px-3 py-3 outline-none font-sans text-base focus:border-stone-400 shadow-sm appearance-none">
+                             {Array.from({length: 24}).map((_, i) => (<option key={i} value={i}>{i.toString().padStart(2, '0')} 时</option>))}
+                         </select>
+                         <Clock size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-300 pointer-events-none" />
+                     </div>
+                 </div>
+              </div>
 
-              <div className={`rounded-2xl border transition-all duration-300 overflow-hidden ${isSolarTime ? 'bg-white border-stone-300 shadow-md' : 'bg-stone-50/50 border-stone-100'}`}>
-                <div className="p-4 flex items-center justify-between cursor-pointer" onClick={() => setIsSolarTime(!isSolarTime)}>
-                  <div className="flex items-center gap-3">
-                    <div className={`p-2 rounded-xl transition-colors ${isSolarTime ? 'bg-amber-100 text-amber-600' : 'bg-white text-stone-300 border border-stone-200'}`}>
-                      <Sun size={18} />
-                    </div>
-                    <div className="flex flex-col">
-                      <span className={`text-[13px] font-bold ${isSolarTime ? 'text-stone-900' : 'text-stone-400'}`}>真太阳时校准</span>
-                      <span className="text-[9px] text-stone-400 font-bold tracking-tight">根据出生地经度修正出生时间</span>
-                    </div>
-                  </div>
-                  <div className={`w-10 h-5 rounded-full p-0.5 transition-colors relative ${isSolarTime ? 'bg-amber-500' : 'bg-stone-200'}`}>
-                    <div className={`w-4 h-4 bg-white rounded-full transition-all shadow-sm ${isSolarTime ? 'translate-x-5' : 'translate-x-0'}`}></div>
-                  </div>
-                </div>
-                 
-                {isSolarTime && (
-                  <div className="px-4 pb-5 pt-1 grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                    <div className="space-y-1.5">
-                      <label className="text-[9px] font-black text-stone-400 uppercase tracking-widest ml-1">省份</label>
-                      <div className="relative">
-                        <select value={province} onChange={handleProvinceChange} className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 outline-none font-sans text-sm focus:border-amber-400 appearance-none">
-                          {CHINA_LOCATIONS.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-                        </select>
-                        <MapPin size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[9px] font-black text-stone-400 uppercase tracking-widest ml-1">城市</label>
-                      <div className="relative">
-                        <select value={city} onChange={handleCityChange} className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 outline-none font-sans text-sm focus:border-amber-400 appearance-none">
-                          {citiesForProvince.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                        </select>
-                        <Map size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <div className={`rounded-2xl border transition-all duration-300 overflow-hidden ${isSolarTime ? 'bg-white border-stone-300 shadow-md' : 'bg-stone-50/50 border-stone-100'}`}>
+                <div className="p-4 flex items-center justify-between cursor-pointer" onClick={() => setIsSolarTime(!isSolarTime)}>
+                  <div className="flex items-center gap-3">
+                      <div className={`p-2 rounded-xl transition-colors ${isSolarTime ? 'bg-amber-100 text-amber-600' : 'bg-white text-stone-300 border border-stone-200'}`}><Sun size={18} /></div>
+                      <div className="flex flex-col"><span className={`text-[13px] font-bold ${isSolarTime ? 'text-stone-900' : 'text-stone-400'}`}>真太阳时校准</span><span className="text-[9px] text-stone-400 font-bold tracking-tight">根据出生地经度修正出生时间</span></div>
+                  </div>
+                  <div className={`w-10 h-5 rounded-full p-0.5 transition-colors relative ${isSolarTime ? 'bg-amber-500' : 'bg-stone-200'}`}><div className={`w-4 h-4 bg-white rounded-full transition-all shadow-sm ${isSolarTime ? 'translate-x-5' : 'translate-x-0'}`}></div></div>
+                </div>
+                 
+                {isSolarTime && (
+                    <div className="px-4 pb-5 pt-1 grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                        <div className="space-y-1.5">
+                            <label className="text-[9px] font-black text-stone-400 uppercase tracking-widest ml-1">省份</label>
+                            <div className="relative">
+                                <select value={province} onChange={handleProvinceChange} className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 outline-none font-sans text-sm focus:border-amber-400 appearance-none">
+                                    {CHINA_LOCATIONS.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
+                                </select>
+                                <MapPin size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+                            </div>
+                        </div>
+                        <div className="space-y-1.5">
+                            <label className="text-[9px] font-black text-stone-400 uppercase tracking-widest ml-1">城市</label>
+                            <div className="relative">
+                                <select value={city} onChange={handleCityChange} className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 outline-none font-sans text-sm focus:border-amber-400 appearance-none">
+                                    {citiesForProvince.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                                </select>
+                                <Map size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+                            </div>
+                        </div>
+                    </div>
+                )}
+              </div>
 
-              <div className="space-y-3 pt-4">
-                <button type="submit" className="w-full h-14 bg-stone-950 text-white font-black rounded-2xl shadow-xl flex items-center justify-center gap-3 group hover:bg-stone-800 transition-all active:scale-[0.98]">
-                  <Compass size={20} className="group-hover:rotate-180 transition-transform duration-700 text-amber-400" />
-                  <span className="text-base tracking-widest font-serif">开启命运推演</span>
-                </button>
-                <button type="button" onClick={() => setShowHistoryModal(true)} className="w-full h-14 bg-white border-2 border-stone-200 text-stone-700 font-black rounded-2xl flex items-center justify-center gap-2 text-sm hover:border-stone-400 transition-all shadow-sm">
-                  <History size={18} className="text-indigo-600" />
-                  <span>历史命盘</span>
-                </button>
-              </div>
-           </form>
-       </div>
+              <div className="space-y-3 pt-4">
+                <button type="submit" className="w-full h-14 bg-stone-950 text-white font-black rounded-2xl shadow-xl flex items-center justify-center gap-3 group hover:bg-stone-800 transition-all active:scale-[0.98]">
+                    <Compass size={20} className="group-hover:rotate-180 transition-transform duration-700 text-amber-400" />
+                    <span className="text-base tracking-widest font-serif">开启命运推演</span>
+                </button>
+                <button type="button" onClick={() => setShowHistoryModal(true)} className="w-full h-14 bg-white border-2 border-stone-200 text-stone-700 font-black rounded-2xl flex items-center justify-center gap-2 text-sm hover:border-stone-400 transition-all shadow-sm">
+                    <History size={18} className="text-indigo-600" />
+                    <span>历史命盘</span>
+                </button>
+              </div>
+           </form>
+       </div>
 
-       {showHistoryModal && (
-          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
-              <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-md" onClick={() => setShowHistoryModal(false)} />
-              <div className="relative bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl flex flex-col max-h-[75vh] animate-slide-up">
-                  <div className="p-6 border-b border-stone-100 flex justify-between items-center">
-                    <h3 className="font-black text-stone-900 text-base flex items-center gap-2"><History size={20}/> 快速调取命盘</h3>
-                    <X onClick={() => setShowHistoryModal(false)} size={22} className="text-stone-400 cursor-pointer"/>
-                  </div>
-                  <div className="overflow-y-auto p-3 space-y-2">
-                    {archives.length > 0 ? archives.map(p => (
-                      <div key={p.id} onClick={() => {onGenerate(p); setShowHistoryModal(false);}} className="p-4 bg-stone-50 hover:bg-indigo-50 rounded-2xl cursor-pointer border border-stone-100 transition-all">
-                        <div className="flex justify-between items-center">
-                          <b className="text-stone-900 text-base">{p.name}</b>
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${p.gender==='male'?'bg-indigo-100 text-indigo-700':'bg-rose-100 text-rose-700'}`}>{p.gender==='male'?'乾':'坤'}</span>
-                        </div>
-                        <p className="text-xs text-stone-500 mt-1 font-sans">{p.birthDate} {p.birthTime}</p>
-                      </div>
-                    )) : <div className="text-center py-16 text-stone-300 text-sm italic font-serif">暂无历史缓存</div>}
-                  </div>
-              </div>
-          </div>
-       )}
-    </div>
-  );
+       {showHistoryModal && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-md" onClick={() => setShowHistoryModal(false)} />
+              <div className="relative bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl flex flex-col max-h-[75vh] animate-slide-up">
+                  <div className="p-6 border-b border-stone-100 flex justify-between items-center">
+                      <h3 className="font-black text-stone-900 text-base flex items-center gap-2"><History size={20}/> 快速调取命盘</h3>
+                      <X onClick={() => setShowHistoryModal(false)} size={22} className="text-stone-400 cursor-pointer"/>
+                  </div>
+                  <div className="overflow-y-auto p-3 space-y-2">
+                    {archives.length > 0 ? archives.map(p => (
+                      <div key={p.id} onClick={() => {onGenerate(p); setShowHistoryModal(false);}} className="p-4 bg-stone-50 hover:bg-indigo-50 rounded-2xl cursor-pointer border border-stone-100 transition-all">
+                        <div className="flex justify-between items-center">
+                          <b className="text-stone-900 text-base">{p.name}</b>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${p.gender==='male'?'bg-indigo-100 text-indigo-700':'bg-rose-100 text-rose-700'}`}>{p.gender==='male'?'乾':'坤'}</span>
+                        </div>
+                        <p className="text-xs text-stone-500 mt-1 font-sans">{p.birthDate} {p.birthTime}</p>
+                      </div>
+                    )) : <div className="text-center py-16 text-stone-300 text-sm italic font-serif">暂无历史缓存</div>}
+                  </div>
+              </div>
+          </div>
+       )}
+    </div>
+  );
 };
 
 // --- 7. 档案视图组件 (修复版：删除/保存/UI层级) ---
 const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelect: any; isVip: boolean; onVipClick: () => void; session: any; onLogout: () => void }> = ({ archives, setArchives, onSelect, isVip, onVipClick, session, onLogout }) => {
-    const [editingProfile, setEditingProfile] = useState<UserProfile | null>(null);
-    const [viewingReports, setViewingReports] = useState<UserProfile | null>(null);
-    const [customTag, setCustomTag] = useState('');
-    const [isSaving, setIsSaving] = useState(false);
-    const [isDeleting, setIsDeleting] = useState<string | null>(null); // 🔥 删除 Loading 状态
+    const [editingProfile, setEditingProfile] = useState<UserProfile | null>(null);
+    const [viewingReports, setViewingReports] = useState<UserProfile | null>(null);
+    const [customTag, setCustomTag] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+    const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
-    const PRESET_TAGS = ['家人', '朋友', '同事', '客户', '自己'];
+    const PRESET_TAGS = ['家人', '朋友', '同事', '客户', '自己'];
 
-    // 🔥 修复删除逻辑：防崩 + 提示
-    const handleDelete = async (id: string, name: string) => {
-        if (!window.confirm(`确定要永久删除 [ ${name} ] 的档案吗？`)) return;
-        setIsDeleting(id);
-        try {
-            const updatedList = await deleteArchive(id);
-            setArchives(updatedList);
-        } catch (error) {
-            alert('删除失败，请重试');
-        } finally {
-            setIsDeleting(null);
-        }
-    };
+    // 🔥 修复删除逻辑：防崩 + 提示
+    const handleDelete = async (id: string, name: string) => {
+        if (!window.confirm(`确定要永久删除 [ ${name} ] 的档案吗？`)) return;
+        setIsDeleting(id);
+        try {
+            const updatedList = await deleteArchive(id);
+            setArchives(updatedList);
+        } catch (error) {
+            alert('删除失败，请重试');
+        } finally {
+            setIsDeleting(null);
+        }
+    };
 
-    // 🔥 修复保存逻辑：防无响应 + 提示
-    const handleSaveEdit = async () => {
-        if (!editingProfile) return;
-        setIsSaving(true);
-        try {
-            const updatedList = await updateArchive(editingProfile);
-            setArchives(updatedList);
-            setEditingProfile(null);
-        } catch (error) {
-            alert('保存失败，请重试');
-        } finally {
-            setIsSaving(false);
-        }
-    };
+    // 🔥 修复保存逻辑：防无响应 + 提示
+    const handleSaveEdit = async () => {
+        if (!editingProfile) return;
+        setIsSaving(true);
+        try {
+            const updatedList = await updateArchive(editingProfile);
+            setArchives(updatedList);
+            setEditingProfile(null);
+        } catch (error) {
+            alert('保存失败，请重试');
+        } finally {
+            setIsSaving(false);
+        }
+    };
 
-    const toggleTag = (tag: string) => {
-        if (!editingProfile) return;
-        const currentTags = editingProfile.tags || [];
-        const newTags = currentTags.includes(tag) ? currentTags.filter(t => t !== tag) : [...currentTags, tag];
-        setEditingProfile({ ...editingProfile, tags: newTags });
-    };
+    const toggleTag = (tag: string) => {
+        if (!editingProfile) return;
+        const currentTags = editingProfile.tags || [];
+        const newTags = currentTags.includes(tag) ? currentTags.filter(t => t !== tag) : [...currentTags, tag];
+        setEditingProfile({ ...editingProfile, tags: newTags });
+    };
 
-    const addCustomTag = () => {
-        if (!customTag.trim() || !editingProfile) return;
-        const currentTags = editingProfile.tags || [];
-        if (!currentTags.includes(customTag.trim())) {
-            setEditingProfile({ ...editingProfile, tags: [...currentTags, customTag.trim()] });
-        }
-        setCustomTag('');
-    };
+    const addCustomTag = () => {
+        if (!customTag.trim() || !editingProfile) return;
+        const currentTags = editingProfile.tags || [];
+        if (!currentTags.includes(customTag.trim())) {
+            setEditingProfile({ ...editingProfile, tags: [...currentTags, customTag.trim()] });
+        }
+        setCustomTag('');
+    };
 
-    return (
-        <div className="h-full flex flex-col bg-[#f5f5f4] overflow-y-auto pb-24">
-             {session && (
-                 // 🔥 修复层级：z-50 防止被 VIP 卡片遮挡
-                 <div className="bg-white border-b border-stone-200 px-5 py-4 flex items-center justify-between sticky top-0 z-50 shadow-sm">
-                     <div className="flex items-center gap-3">
-                         <div className="w-10 h-10 rounded-full bg-stone-900 text-amber-500 flex items-center justify-center font-bold text-lg border-2 border-amber-500 shadow-sm">
-                             {session.user.email?.[0].toUpperCase()}
-                         </div>
-                         <div>
-                             <p className="text-xs font-bold text-stone-900">{session.user.email}</p>
-                             <p className="text-[10px] text-stone-400 font-medium">云端同步已开启</p>
-                         </div>
-                     </div>
-                     <button onClick={onLogout} className="p-2 bg-stone-50 text-stone-500 rounded-lg hover:bg-stone-100 border border-stone-200">
-                         <LogOut size={16} />
-                     </button>
-                 </div>
-             )}
+    return (
+        <div className="h-full flex flex-col bg-[#f5f5f4] overflow-y-auto pb-24">
+             {session && (
+                 // 🔥 修复层级：z-50 防止被 VIP 卡片遮挡
+                 <div className="bg-white border-b border-stone-200 px-5 py-4 flex items-center justify-between sticky top-0 z-50 shadow-sm">
+                     <div className="flex items-center gap-3">
+                         <div className="w-10 h-10 rounded-full bg-stone-900 text-amber-500 flex items-center justify-center font-bold text-lg border-2 border-amber-500 shadow-sm">
+                             {session.user.email?.[0].toUpperCase()}
+                         </div>
+                         <div>
+                             <p className="text-xs font-bold text-stone-900">{session.user.email}</p>
+                             <p className="text-[10px] text-stone-400 font-medium">云端同步已开启</p>
+                         </div>
+                     </div>
+                     <button onClick={onLogout} className="p-2 bg-stone-50 text-stone-500 rounded-lg hover:bg-stone-100 border border-stone-200">
+                         <LogOut size={16} />
+                     </button>
+                 </div>
+             )}
 
-            <div className="p-5 space-y-4">
-                {!isVip && (
-                    <div onClick={onVipClick} className="bg-gradient-to-r from-stone-900 to-stone-700 rounded-3xl p-5 shadow-lg relative overflow-hidden cursor-pointer group hover:scale-[1.02] transition-transform">
-                        <div className="absolute top-0 right-0 p-4 opacity-10"><Crown size={80} /></div>
-                        <div className="relative z-10 flex items-center justify-between">
-                            <div>
-                                <h3 className="text-lg font-black text-amber-400 mb-1">升级 VIP 尊享版</h3>
-                                <p className="text-xs text-stone-300 font-medium">解锁 AI 深度对话 · 免 Key 无限畅享</p>
-                            </div>
-                            <div className="bg-amber-400 text-stone-900 px-3 py-2 rounded-xl text-xs font-black shadow-md group-hover:bg-amber-300 transition-colors">
-                                立即开通
-                            </div>
-                        </div>
-                    </div>
-                )}
+            <div className="p-5 space-y-4">
+                {!isVip && (
+                    <div onClick={onVipClick} className="bg-gradient-to-r from-stone-900 to-stone-700 rounded-3xl p-5 shadow-lg relative overflow-hidden cursor-pointer group hover:scale-[1.02] transition-transform">
+                        <div className="absolute top-0 right-0 p-4 opacity-10"><Crown size={80} /></div>
+                        <div className="relative z-10 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-lg font-black text-amber-400 mb-1">升级 VIP 尊享版</h3>
+                                <p className="text-xs text-stone-300 font-medium">解锁 AI 深度对话 · 免 Key 无限畅享</p>
+                            </div>
+                            <div className="bg-amber-400 text-stone-900 px-3 py-2 rounded-xl text-xs font-black shadow-md group-hover:bg-amber-300 transition-colors">
+                                立即开通
+                            </div>
+                        </div>
+                    </div>
+                )}
 
-                {archives.length > 0 ? archives.map(p => (
-                    <div key={p.id} className={`bg-white border border-stone-200 rounded-3xl p-5 shadow-sm space-y-4 transition-all ${isDeleting === p.id ? 'opacity-50 pointer-events-none grayscale' : ''}`}>
-                        <div className="flex justify-between items-start gap-4">
-                            <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                    <h3 className="font-black text-stone-900 text-lg">{p.name}</h3>
-                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${p.gender==='male'?'bg-indigo-50 text-indigo-700':'bg-rose-50 text-rose-700'}`}>{p.gender==='male'?'乾':'坤'}</span>
-                                </div>
-                                <p className="text-[11px] text-stone-500 font-medium mb-2">{p.birthDate} {p.birthTime} {p.isSolarTime ? '(真太阳)' : ''}</p>
-                                <div className="flex flex-wrap gap-1.5">
-                                    {p.tags && p.tags.length > 0 ? p.tags.map(t => (
-                                        <span key={t} className="text-[9px] px-2 py-0.5 rounded bg-stone-100 text-stone-600 font-bold border border-stone-200">#{t}</span>
-                                    )) : <span className="text-[9px] text-stone-300 italic">未分类</span>}
-                                </div>
-                            </div>
-                            <div className="flex gap-2">
-                               <button onClick={()=>onSelect(p)} className="p-2.5 bg-stone-950 text-white rounded-xl shadow-md active:scale-95 transition-transform"><Compass size={18}/></button>
-                               <button onClick={()=>setEditingProfile(p)} className="p-2.5 bg-white border border-stone-200 text-stone-600 rounded-xl hover:bg-stone-50"><Edit2 size={18}/></button>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3 pt-2 border-t border-stone-50">
-                            <button onClick={()=>setViewingReports(p)} className="py-2.5 bg-stone-50 text-stone-600 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5 hover:bg-stone-100 transition-colors"><FileText size={14}/> 解盘记录 ({p.aiReports?.length || 0})</button>
-                            <button onClick={() => handleDelete(p.id, p.name)} disabled={isDeleting === p.id} className="py-2.5 bg-rose-50 text-rose-600 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5 hover:bg-rose-100 transition-colors border border-rose-100">{isDeleting === p.id ? <Activity size={14} className="animate-spin"/> : <Trash2 size={14}/>} {isDeleting === p.id ? '删除中...' : '删除档案'}</button>
-                        </div>
-                    </div>
-                )) : <div className="text-center py-20 text-stone-400 font-bold text-sm">暂无云端档案，请先排盘保存</div>}
-            </div>
+                {archives.length > 0 ? archives.map(p => (
+                    <div key={p.id} className={`bg-white border border-stone-200 rounded-3xl p-5 shadow-sm space-y-4 transition-all ${isDeleting === p.id ? 'opacity-50 pointer-events-none grayscale' : ''}`}>
+                        <div className="flex justify-between items-start gap-4">
+                            <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <h3 className="font-black text-stone-900 text-lg">{p.name}</h3>
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${p.gender==='male'?'bg-indigo-50 text-indigo-700':'bg-rose-50 text-rose-700'}`}>{p.gender==='male'?'乾':'坤'}</span>
+                                </div>
+                                <p className="text-[11px] text-stone-500 font-medium mb-2">{p.birthDate} {p.birthTime} {p.isSolarTime ? '(真太阳)' : ''}</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {p.tags && p.tags.length > 0 ? p.tags.map(t => (
+                                        <span key={t} className="text-[9px] px-2 py-0.5 rounded bg-stone-100 text-stone-600 font-bold border border-stone-200">#{t}</span>
+                                    )) : <span className="text-[9px] text-stone-300 italic">未分类</span>}
+                                </div>
+                            </div>
+                            <div className="flex gap-2">
+                               <button onClick={()=>onSelect(p)} className="p-2.5 bg-stone-950 text-white rounded-xl shadow-md active:scale-95 transition-transform"><Compass size={18}/></button>
+                               <button onClick={()=>setEditingProfile(p)} className="p-2.5 bg-white border border-stone-200 text-stone-600 rounded-xl hover:bg-stone-50"><Edit2 size={18}/></button>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 pt-2 border-t border-stone-50">
+                            <button onClick={()=>setViewingReports(p)} className="py-2.5 bg-stone-50 text-stone-600 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5 hover:bg-stone-100 transition-colors"><FileText size={14}/> 解盘记录 ({p.aiReports?.length || 0})</button>
+                            <button onClick={() => handleDelete(p.id, p.name)} disabled={isDeleting === p.id} className="py-2.5 bg-rose-50 text-rose-600 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5 hover:bg-rose-100 transition-colors border border-rose-100">{isDeleting === p.id ? <Activity size={14} className="animate-spin"/> : <Trash2 size={14}/>} {isDeleting === p.id ? '删除中...' : '删除档案'}</button>
+                        </div>
+                    </div>
+                )) : <div className="text-center py-20 text-stone-400 font-bold text-sm">暂无云端档案，请先排盘保存</div>}
+            </div>
 
-            {/* 编辑弹窗 */}
-            {editingProfile && (
-                <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm" onClick={() => !isSaving && setEditingProfile(null)} />
-                    <div className="relative bg-white w-full max-w-sm rounded-[2rem] shadow-2xl overflow-hidden animate-slide-up">
-                        <div className="p-5 border-b border-stone-100 bg-stone-50 flex justify-between items-center">
-                            <h3 className="font-black text-stone-900">编辑档案</h3>
-                            <button onClick={()=> !isSaving && setEditingProfile(null)}><X size={20} className="text-stone-400"/></button>
-                        </div>
-                        <div className="p-6 space-y-6">
-                            <div className="space-y-2">
-                                <label className="text-xs font-black text-stone-500 uppercase tracking-wider">姓名</label>
-                                <input type="text" value={editingProfile.name} onChange={e => setEditingProfile({...editingProfile, name: e.target.value})} className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-3 outline-none font-bold text-stone-900 focus:border-stone-400"/>
-                            </div>
-                            <div className="space-y-3">
-                                <label className="text-xs font-black text-stone-500 uppercase tracking-wider flex items-center gap-2"><Tag size={14}/> 标签管理</label>
-                                <div className="flex flex-wrap gap-2">{PRESET_TAGS.map(tag => (<button key={tag} onClick={() => toggleTag(tag)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${editingProfile.tags?.includes(tag) ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-stone-200 text-stone-500 hover:border-indigo-200'}`}>{tag}</button>))}</div>
-                                <div className="flex gap-2">
-                                    <input type="text" value={customTag} onChange={e => setCustomTag(e.target.value)} placeholder="添加自定义标签..." className="flex-1 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-stone-400"/>
-                                    <button onClick={addCustomTag} className="p-2 bg-stone-200 rounded-lg text-stone-600 hover:bg-stone-300"><Plus size={16}/></button>
-                                </div>
-                                <div className="flex flex-wrap gap-1.5 pt-2">{editingProfile.tags?.filter(t => !PRESET_TAGS.includes(t)).map(t => (<div key={t} className="flex items-center gap-1 bg-amber-50 text-amber-700 px-2 py-1 rounded text-[10px] font-bold border border-amber-100">#{t}<button onClick={() => toggleTag(t)}><X size={10}/></button></div>))}</div>
-                            </div>
-                            <button 
-                                onClick={handleSaveEdit} 
-                                disabled={isSaving}
-                                className={`w-full py-3 rounded-xl font-bold shadow-lg mt-2 active:scale-95 transition-transform flex items-center justify-center gap-2
-                                    ${isSaving ? 'bg-stone-300 text-stone-500 cursor-not-allowed' : 'bg-stone-900 text-white'}`}
-                            >
-                                {isSaving ? <><Activity size={16} className="animate-spin"/> 保存中...</> : '保存修改'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-            
-            {/* 报告查看弹窗 */}
-            {viewingReports && (
-                <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-md" onClick={() => setViewingReports(null)} />
-                    <div className="relative bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl flex flex-col max-h-[85vh] animate-slide-up overflow-hidden">
-                        <div className="p-5 border-b border-stone-100 flex justify-between items-center bg-stone-50/50"><h3 className="font-black text-stone-900">{viewingReports.name} 的报告库</h3><X onClick={() => setViewingReports(null)} size={20} className="text-stone-400 cursor-pointer"/></div>
-                        <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar">
-                            {viewingReports.aiReports?.length ? viewingReports.aiReports.map(r => (
-                                <div key={r.id} className="bg-white border border-stone-200 rounded-2xl p-4 shadow-sm space-y-2">
-                                    <div className="flex justify-between items-center"><span className="text-[10px] font-black px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100">{r.type==='ziwei'?'紫微':'八字'}</span><span className="text-[9px] text-stone-400">{new Date(r.date).toLocaleString()}</span></div>
-                                    <div className="text-[12px] text-stone-700 leading-relaxed whitespace-pre-wrap font-medium">{typeof r.content === 'string' ? r.content : JSON.stringify(r.content, null, 2)}</div>
-                                    <button onClick={()=>{navigator.clipboard.writeText(String(r.content)); alert('已复制');}} className="w-full py-2 bg-stone-100 text-stone-700 rounded-xl text-[10px] font-bold">复制全文</button>
-                                </div>
-                            )) : <div className="text-center py-20 text-stone-300 italic">暂无记录</div>}
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
+            {editingProfile && (
+                <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm" onClick={() => !isSaving && setEditingProfile(null)} />
+                    <div className="relative bg-white w-full max-w-sm rounded-[2rem] shadow-2xl overflow-hidden animate-slide-up">
+                        <div className="p-5 border-b border-stone-100 bg-stone-50 flex justify-between items-center">
+                            <h3 className="font-black text-stone-900">编辑档案</h3>
+                            <button onClick={()=> !isSaving && setEditingProfile(null)}><X size={20} className="text-stone-400"/></button>
+                        </div>
+                        <div className="p-6 space-y-6">
+                            <div className="space-y-2">
+                                <label className="text-xs font-black text-stone-500 uppercase tracking-wider">姓名</label>
+                                <input type="text" value={editingProfile.name} onChange={e => setEditingProfile({...editingProfile, name: e.target.value})} className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-3 outline-none font-bold text-stone-900 focus:border-stone-400"/>
+                            </div>
+                            <div className="space-y-3">
+                                <label className="text-xs font-black text-stone-500 uppercase tracking-wider flex items-center gap-2"><Tag size={14}/> 标签管理</label>
+                                <div className="flex flex-wrap gap-2">{PRESET_TAGS.map(tag => (<button key={tag} onClick={() => toggleTag(tag)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${editingProfile.tags?.includes(tag) ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-stone-200 text-stone-500 hover:border-indigo-200'}`}>{tag}</button>))}</div>
+                                <div className="flex gap-2">
+                                    <input type="text" value={customTag} onChange={e => setCustomTag(e.target.value)} placeholder="添加自定义标签..." className="flex-1 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-stone-400"/>
+                                    <button onClick={addCustomTag} className="p-2 bg-stone-200 rounded-lg text-stone-600 hover:bg-stone-300"><Plus size={16}/></button>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5 pt-2">{editingProfile.tags?.filter(t => !PRESET_TAGS.includes(t)).map(t => (<div key={t} className="flex items-center gap-1 bg-amber-50 text-amber-700 px-2 py-1 rounded text-[10px] font-bold border border-amber-100">#{t}<button onClick={() => toggleTag(t)}><X size={10}/></button></div>))}</div>
+                            </div>
+                            <button 
+                                onClick={handleSaveEdit} 
+                                disabled={isSaving}
+                                className={`w-full py-3 rounded-xl font-bold shadow-lg mt-2 active:scale-95 transition-transform flex items-center justify-center gap-2
+                                    ${isSaving ? 'bg-stone-300 text-stone-500 cursor-not-allowed' : 'bg-stone-900 text-white'}`}
+                            >
+                                {isSaving ? <><Activity size={16} className="animate-spin"/> 保存中...</> : '保存修改'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            
+            {viewingReports && (
+                <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-md" onClick={() => setViewingReports(null)} />
+                    <div className="relative bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl flex flex-col max-h-[85vh] animate-slide-up overflow-hidden">
+                        <div className="p-5 border-b border-stone-100 flex justify-between items-center bg-stone-50/50"><h3 className="font-black text-stone-900">{viewingReports.name} 的报告库</h3><X onClick={() => setViewingReports(null)} size={20} className="text-stone-400 cursor-pointer"/></div>
+                        <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar">
+                            {viewingReports.aiReports?.length ? viewingReports.aiReports.map(r => (
+                                <div key={r.id} className="bg-white border border-stone-200 rounded-2xl p-4 shadow-sm space-y-2">
+                                    <div className="flex justify-between items-center"><span className="text-[10px] font-black px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100">{r.type==='ziwei'?'紫微':'八字'}</span><span className="text-[9px] text-stone-400">{new Date(r.date).toLocaleString()}</span></div>
+                                    <div className="text-[12px] text-stone-700 leading-relaxed whitespace-pre-wrap font-medium">{typeof r.content === 'string' ? r.content : JSON.stringify(r.content, null, 2)}</div>
+                                    <button onClick={()=>{navigator.clipboard.writeText(String(r.content)); alert('已复制');}} className="w-full py-2 bg-stone-100 text-stone-700 rounded-xl text-[10px] font-bold">复制全文</button>
+                                </div>
+                            )) : <div className="text-center py-20 text-stone-300 italic">暂无记录</div>}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
 };
 
 // --- 8. 主 App 组件 (修复版：全局保存状态 + ID同步) ---
 const App: React.FC = () => {
-  const [currentTab, setCurrentTab] = useState<AppTab>(AppTab.HOME);
-  const [currentProfile, setCurrentProfile] = useState<UserProfile | null>(null);
-  const [baziChart, setBaziChart] = useState<BaziChart | null>(null);
-  const [modalData, setModalData] = useState<ModalData | null>(null);
-  const [archives, setArchives] = useState<UserProfile[]>([]);
-  const [loadingAi, setLoadingAi] = useState(false);
-  const [aiReport, setAiReport] = useState<AiBaziReport | null>(null);
-  const [session, setSession] = useState<any>(null);
-  const [isVip, setIsVip] = useState(() => localStorage.getItem('is_vip_user') === 'true');
-  const [showVipModal, setShowVipModal] = useState(false);
-  const [isGlobalSaving, setIsGlobalSaving] = useState(false); // 🔥 全局保存锁
+  const [currentTab, setCurrentTab] = useState<AppTab>(AppTab.HOME);
+  const [currentProfile, setCurrentProfile] = useState<UserProfile | null>(null);
+  const [baziChart, setBaziChart] = useState<BaziChart | null>(null);
+  const [modalData, setModalData] = useState<ModalData | null>(null);
+  const [archives, setArchives] = useState<UserProfile[]>([]);
+  const [loadingAi, setLoadingAi] = useState(false);
+  const [aiReport, setAiReport] = useState<AiBaziReport | null>(null);
+  const [session, setSession] = useState<any>(null);
+  const [isVip, setIsVip] = useState(false);
+  const [showVipModal, setShowVipModal] = useState(false);
+  const [isGlobalSaving, setIsGlobalSaving] = useState(false); // 🔥 全局保存锁
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session));
-    return () => subscription.unsubscribe();
-  }, []);
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session));
+    return () => subscription.unsubscribe();
+  }, []);
 
-  useEffect(() => {
-    const loadData = async () => {
-        if (session) {
-            const data = await getArchives();
-            setArchives(data);
-        } else {
-            setArchives([]);
-        }
-    };
-    loadData();
-  }, [session]);
+  // 🔥 核心修改：监听 Session 并同步 VIP 状态
+  useEffect(() => {
+    const syncUserData = async () => {
+        if (session) {
+            // 1. 加载档案
+            const data = await getArchives();
+            setArchives(data);
+            
+            // 2. 🔥 加载 VIP 状态 (跟着邮箱走)
+            const vipStatus = await getVipStatus();
+            setIsVip(vipStatus);
+        } else {
+            setArchives([]);
+            setIsVip(false); // 登出后取消 VIP
+        }
+    };
+    syncUserData();
+  }, [session]);
 
-  // 🔥 极速排盘 + 防重复逻辑
-  const handleGenerate = (profile: UserProfile) => {
-    try {
-        let safeDate = profile.birthDate; // 修正日期格式
-        if (safeDate.length === 8 && !safeDate.includes('-')) {
-            safeDate = `${safeDate.slice(0, 4)}-${safeDate.slice(4, 6)}-${safeDate.slice(6, 8)}`;
-        }
-        
-        const newBazi = calculateBazi({ ...profile, birthDate: safeDate });
-        setCurrentProfile(profile);
-        setBaziChart(newBazi);
-        setCurrentTab(AppTab.CHART);
-        setAiReport(null);
+  // 🔥 极速排盘 + 防重复逻辑
+  const handleGenerate = (profile: UserProfile) => {
+    try {
+        let safeDate = profile.birthDate; // 修正日期格式
+        if (safeDate.length === 8 && !safeDate.includes('-')) {
+            safeDate = `${safeDate.slice(0, 4)}-${safeDate.slice(4, 6)}-${safeDate.slice(6, 8)}`;
+        }
+        
+        const newBazi = calculateBazi({ ...profile, birthDate: safeDate });
+        setCurrentProfile(profile);
+        setBaziChart(newBazi);
+        setCurrentTab(AppTab.CHART);
+        setAiReport(null);
 
-        if (session) {
-            setIsGlobalSaving(true); // 🔒 锁定
-            saveArchive(profile)
-              .then(updatedList => {
-                  setArchives(updatedList);
-                  // 同步 ID
-                  if (updatedList.length > 0 && updatedList[0].name === profile.name) {
-                      setCurrentProfile(prev => prev ? { ...prev, id: updatedList[0].id } : null);
-                  }
-              })
-              .catch(err => console.error("Auto-save failed", err))
-              .finally(() => setIsGlobalSaving(false)); // 🔓 解锁
-        }
-    } catch (e) { alert("排盘失败，请检查日期"); }
-  };
+        if (session) {
+            setIsGlobalSaving(true); // 🔒 锁定
+            saveArchive(profile)
+              .then(updatedList => {
+                  setArchives(updatedList);
+                  // 同步 ID
+                  if (updatedList.length > 0 && updatedList[0].name === profile.name) {
+                      setCurrentProfile(prev => prev ? { ...prev, id: updatedList[0].id } : null);
+                  }
+              })
+              .catch(err => console.error("Auto-save failed", err))
+              .finally(() => setIsGlobalSaving(false)); // 🔓 解锁
+        }
+    } catch (e) { alert("排盘失败，请检查日期"); }
+  };
 
-  const handleManualSave = async () => {
-      if (isGlobalSaving) return; // 🔒 如果正在自动保存，忽略点击
-      if (!currentProfile || !session) return alert('未登录或无数据');
-      
-      setIsGlobalSaving(true);
-      try {
-          const updatedList = await saveArchive(currentProfile);
-          setArchives(updatedList);
-          if (updatedList.length > 0 && updatedList[0].name === currentProfile.name) {
-              setCurrentProfile(updatedList[0]);
-          }
-      } catch(e) { } finally { setIsGlobalSaving(false); }
-  };
+  const handleManualSave = async () => {
+      if (isGlobalSaving) return; // 🔒 如果正在自动保存，忽略点击
+      if (!currentProfile || !session) return alert('未登录或无数据');
+      
+      setIsGlobalSaving(true);
+      try {
+          const updatedList = await saveArchive(currentProfile);
+          setArchives(updatedList);
+          if (updatedList.length > 0 && updatedList[0].name === currentProfile.name) {
+              setCurrentProfile(updatedList[0]);
+          }
+      } catch(e) { } finally { setIsGlobalSaving(false); }
+  };
 
-  const handleActivateVip = () => {
-      setIsVip(true);
-      localStorage.setItem('is_vip_user', 'true');
-      alert("VIP 激活成功！您已解锁 AI 对话功能和无限畅享特权。");
-  };
+  // 🔥 核心修改：激活逻辑改为云端同步
+  const handleActivateVip = async () => {
+      if (!session) {
+          alert("请先登录！VIP 权益需要绑定您的邮箱账号。");
+          return;
+      }
+      const success = await activateVipOnCloud(); 
+      if (success) {
+          setIsVip(true);
+          alert("🎉 尊贵的 VIP 用户，您的权益已永久绑定至当前账号！");
+      }
+  };
 
-  const handleAiAnalysis = async () => {
-    const key = sessionStorage.getItem('ai_api_key');
-    setLoadingAi(true);
-    try {
-      const result = await analyzeBaziStructured(baziChart!, key || undefined);
-      setAiReport(result);
-      if (currentProfile && session) {
-        const updated = await saveAiReportToArchive(currentProfile.id, result.copyText, 'bazi');
-        setArchives(updated);
-      }
-    } catch (e) { 
-      alert(e instanceof Error ? e.message : 'Error'); 
-    } finally { 
-      setLoadingAi(false); 
-    }
-  };
+  const handleAiAnalysis = async () => {
+    const key = sessionStorage.getItem('ai_api_key');
+    setLoadingAi(true);
+    try {
+      const result = await analyzeBaziStructured(baziChart!, key || undefined);
+      setAiReport(result);
+      if (currentProfile && session) {
+        const updated = await saveAiReportToArchive(currentProfile.id, result.copyText, 'bazi');
+        setArchives(updated);
+      }
+    } catch (e) { 
+      alert(e instanceof Error ? e.message : 'Error'); 
+    } finally { 
+      setLoadingAi(false); 
+    }
+  };
 
-  const renderContent = () => {
-      switch (currentTab) {
-          case AppTab.HOME:
-              return <HomeView onGenerate={handleGenerate} archives={archives} />;
-          case AppTab.CHART:
-              return baziChart && currentProfile ? (
-                  <ErrorBoundary>
-                      <BaziChartView 
-                        profile={currentProfile} 
-                        chart={baziChart} 
-                        onShowModal={setModalData} 
-                        onSaveReport={async (r:string, t:'bazi'|'ziwei')=> { const updated = await saveAiReportToArchive(currentProfile.id, r, t); setArchives(updated); }} 
-                        onAiAnalysis={handleAiAnalysis} 
-                        loadingAi={loadingAi} 
-                        aiReport={aiReport} 
-                        isVip={isVip} 
-                        onManualSave={handleManualSave} 
-                        isSaving={isGlobalSaving} 
-                      />
-                  </ErrorBoundary>
-              ) : null;
-          case AppTab.ZIWEI:
-              return currentProfile ? <ZiweiView profile={currentProfile} onSaveReport={async (r) => { const updated = await saveAiReportToArchive(currentProfile.id, r, 'ziwei'); setArchives(updated); }} isVip={isVip} /> : null;
-          case AppTab.ARCHIVE:
-              if (!session) return <div className="flex flex-col items-center justify-center h-full p-6 bg-[#f5f5f4]"><Auth onLoginSuccess={()=>{}} /></div>;
-              return <ArchiveView archives={archives} setArchives={setArchives} onSelect={handleGenerate} isVip={isVip} onVipClick={() => setShowVipModal(true)} session={session} onLogout={() => supabase.auth.signOut()}/>;
-          default:
-              return <HomeView onGenerate={handleGenerate} archives={archives} />;
-      }
-  };
+  const renderContent = () => {
+      switch (currentTab) {
+          case AppTab.HOME:
+              return <HomeView onGenerate={handleGenerate} archives={archives} />;
+          case AppTab.CHART:
+              return baziChart && currentProfile ? (
+                  <ErrorBoundary>
+                      <BaziChartView 
+                        profile={currentProfile} 
+                        chart={baziChart} 
+                        onShowModal={setModalData} 
+                        onSaveReport={async (r:string, t:'bazi'|'ziwei')=> { const updated = await saveAiReportToArchive(currentProfile.id, r, t); setArchives(updated); }} 
+                        onAiAnalysis={handleAiAnalysis} 
+                        loadingAi={loadingAi} 
+                        aiReport={aiReport} 
+                        isVip={isVip} 
+                        onManualSave={handleManualSave} 
+                        isSaving={isGlobalSaving} 
+                      />
+                  </ErrorBoundary>
+              ) : null;
+          case AppTab.ZIWEI:
+              return currentProfile ? <ZiweiView profile={currentProfile} onSaveReport={async (r) => { const updated = await saveAiReportToArchive(currentProfile.id, r, 'ziwei'); setArchives(updated); }} isVip={isVip} /> : null;
+          case AppTab.ARCHIVE:
+              if (!session) return <div className="flex flex-col items-center justify-center h-full p-6 bg-[#f5f5f4]"><Auth onLoginSuccess={()=>{}} /></div>;
+              return <ArchiveView archives={archives} setArchives={setArchives} onSelect={handleGenerate} isVip={isVip} onVipClick={() => setShowVipModal(true)} session={session} onLogout={() => supabase.auth.signOut()}/>;
+          default:
+              return <HomeView onGenerate={handleGenerate} archives={archives} />;
+      }
+  };
 
-  return (
-    <div className={`flex flex-col h-screen overflow-hidden text-stone-950 font-sans select-none transition-colors duration-700 ${isVip ? 'bg-[#181816]' : 'bg-[#f5f5f4]'}`}>
-      <AppHeader title={currentTab === AppTab.HOME ? '玄枢命理' : currentProfile?.name || '排盘'} rightAction={currentTab !== AppTab.HOME && <button onClick={()=>{setCurrentProfile(null);setCurrentTab(AppTab.HOME);setAiReport(null);}} className={`p-2 rounded-full transition-colors ${isVip ? 'hover:bg-white/10 text-stone-300' : 'hover:bg-stone-100 text-stone-700'}`}><RotateCcw size={18} /></button>} isVip={isVip} />
-      <div className="flex-1 overflow-hidden relative">{renderContent()}</div>
-      <BottomNav currentTab={currentTab} onTabChange={setCurrentTab} />
-      {modalData && <DetailModal data={modalData} chart={baziChart} onClose={() => setModalData(null)} />}
-      {showVipModal && <VipActivationModal onClose={() => setShowVipModal(false)} onActivate={handleActivateVip} />}
-    </div>
-  );
+  return (
+    <div className={`flex flex-col h-screen overflow-hidden text-stone-950 font-sans select-none transition-colors duration-700 ${isVip ? 'bg-[#181816]' : 'bg-[#f5f5f4]'}`}>
+      <AppHeader title={currentTab === AppTab.HOME ? '玄枢命理' : currentProfile?.name || '排盘'} rightAction={currentTab !== AppTab.HOME && <button onClick={()=>{setCurrentProfile(null);setCurrentTab(AppTab.HOME);setAiReport(null);}} className={`p-2 rounded-full transition-colors ${isVip ? 'hover:bg-white/10 text-stone-300' : 'hover:bg-stone-100 text-stone-700'}`}><RotateCcw size={18} /></button>} isVip={isVip} />
+      <div className="flex-1 overflow-hidden relative">{renderContent()}</div>
+      <BottomNav currentTab={currentTab} onTabChange={setCurrentTab} />
+      {modalData && <DetailModal data={modalData} chart={baziChart} onClose={() => setModalData(null)} />}
+      {showVipModal && <VipActivationModal onClose={() => setShowVipModal(false)} onActivate={handleActivateVip} />}
+    </div>
+  );
 };
 
 export default App;
