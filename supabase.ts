@@ -1,15 +1,21 @@
+import { createClient } from '@supabase/supabase-js';
 
-import { createClient } from "@supabase/supabase-js";
+// 1. 读取环境变量
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// 1. 获取环境变量，并提供默认值 '' 防止 undefined 报错
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+// 2. 调试检查 (如果还报错，这行会告诉你读到了什么)
+console.log("Supabase Config Check:", {
+    URL_Length: supabaseUrl?.length || 0,
+    Key_Length: supabaseAnonKey?.length || 0,
+    Has_URL: !!supabaseUrl,
+    Has_Key: !!supabaseAnonKey
+});
 
-// 2. 检查并提示
+// 3. 抛出错误阻断运行，防止后续莫名其妙的 Bug
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error("⚠️ 严重警告: Supabase 环境变量未设置！请检查 .env 文件或 Vercel 环境变量设置 (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY)");
+    throw new Error("❌ [严重错误] 环境变量缺失！请检查 .env 文件。");
 }
 
-// 3. 创建客户端
-// 即使是空字符串，createClient 也不会立即崩，只有在真正发起请求时才会失败
+// 4. 创建客户端
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
