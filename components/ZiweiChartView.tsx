@@ -1,6 +1,5 @@
-
 import React from 'react';
-import { BRANCH_CENTERS } from '../ziwei/constants';
+import { BRANCH_CENTERS } from '../ziwei/constants'; // 确保这个路径是对的，或者从 services/constants 引入
 
 interface ZiweiChartViewProps {
   chartData: any;
@@ -10,7 +9,17 @@ interface ZiweiChartViewProps {
   onStarClick: (e: any, name: string) => void;
 }
 
-const getStarColor = (type?: string) => {
+const getStarColor = (type?: string, isDarkBg?: boolean) => {
+  if (isDarkBg) {
+    // 深色背景下的星曜颜色适配
+    switch (type) {
+      case 'major': return 'text-amber-300'; // 主星金黄色
+      case 'lucky': return 'text-emerald-300';
+      case 'bad': return 'text-rose-300';
+      default: return 'text-stone-300';
+    }
+  }
+  // 浅色背景（默认）
   switch (type) {
     case 'major': return 'text-red-700';
     case 'lucky': return 'text-emerald-700';
@@ -19,10 +28,10 @@ const getStarColor = (type?: string) => {
   }
 };
 
-const getBrightnessColor = (b?: string) => {
-  if (!b) return 'text-stone-300';
-  if (b === '庙' || b === '旺') return 'text-red-600';
-  return 'text-stone-500';
+const getBrightnessColor = (b?: string, isDarkBg?: boolean) => {
+  if (!b) return isDarkBg ? 'text-white/20' : 'text-stone-300';
+  if (b === '庙' || b === '旺') return isDarkBg ? 'text-amber-400' : 'text-red-600';
+  return isDarkBg ? 'text-stone-400' : 'text-stone-500';
 };
 
 const formatBrightness = (b?: string) => {
@@ -41,29 +50,24 @@ const getHuaBg = (hua: string) => {
   }
 };
 
-const VerticalStar: React.FC<{ name: string; type: string; brightness?: string; hua?: string }> = ({ name, type, brightness, hua }) => {
+// 增加 isDarkBg 参数，用于适配深色背景
+const VerticalStar: React.FC<{ name: string; type: string; brightness?: string; hua?: string; isDarkBg?: boolean }> = ({ name, type, brightness, hua, isDarkBg }) => {
   return (
     <div className="flex flex-col items-center relative group shrink-0 mb-1.5 px-0.5">
-      {/* 
-         四化标签：移至左上角 (-left-2)，并稍微上浮 (-top-1) 
-         这样标签会悬浮在星曜名称第一字的左侧，不会挡住本星文字，也不会挡住右侧列文字。
-      */}
       {hua && (
         <span className={`absolute -left-2 -top-1 w-3 h-3 sm:w-3.5 sm:h-3.5 rounded-full flex items-center justify-center text-[7px] sm:text-[8px] text-white font-bold shadow-sm ring-1 ring-white z-20 ${getHuaBg(hua)}`}>
           {hua}
         </span>
       )}
 
-      {/* 星曜名称 */}
-      <div className={`flex flex-col items-center leading-[1.1] font-black tracking-tighter ${type === 'major' ? 'text-[12px] sm:text-[14px]' : 'text-[10px] sm:text-[11px]'} ${getStarColor(type)}`}>
+      <div className={`flex flex-col items-center leading-[1.1] font-black tracking-tighter ${type === 'major' ? 'text-[12px] sm:text-[14px]' : 'text-[10px] sm:text-[11px]'} ${getStarColor(type, isDarkBg)}`}>
         {name.split('').map((char, i) => (
           <span key={i}>{char}</span>
         ))}
       </div>
       
-      {/* 亮度 */}
       {brightness && (
-        <span className={`text-[8px] sm:text-[9px] font-bold mt-0.5 ${getBrightnessColor(brightness)}`}>
+        <span className={`text-[8px] sm:text-[9px] font-bold mt-0.5 ${getBrightnessColor(brightness, isDarkBg)}`}>
           {formatBrightness(brightness)}
         </span>
       )}
@@ -71,7 +75,6 @@ const VerticalStar: React.FC<{ name: string; type: string; brightness?: string; 
   );
 };
 
-// 分列逻辑：每列最多3个
 const chunkStars = (stars: any[], size: number = 3) => {
   const result = [];
   for (let i = 0; i < stars.length; i += size) {
@@ -83,15 +86,25 @@ const chunkStars = (stars: any[], size: number = 3) => {
 export const ZiweiChartView: React.FC<ZiweiChartViewProps> = ({ 
   chartData, profile, activePalaceName, onPalaceClick, onStarClick 
 }) => {
+  // 1. 找到当前激活的宫位对象
   const activePalace = chartData.palaces.find((p: any) => p.name === activePalaceName);
-  const getSanFangSiZhengIndices = (zhiIndex: number) => [
-    zhiIndex, (zhiIndex + 4) % 12, (zhiIndex + 8) % 12, (zhiIndex + 6) % 12
-  ];
+
+  // 2. 计算三方四正关系 (基于地支索引)
+  const getRelationType = (targetZhiIndex: number) => {
+      if (!activePalace) return null;
+      const activeIdx = activePalace.zhiIndex;
+      
+      if (targetZhiIndex === activeIdx) return 'self'; // 本宫
+      if ((activeIdx + 6) % 12 === targetZhiIndex) return 'opposite'; // 对宫
+      if ((activeIdx + 4) % 12 === targetZhiIndex || (activeIdx + 8) % 12 === targetZhiIndex) return 'trine'; // 三合
+      return null;
+  };
 
   return (
     <div className="w-full max-w-full overflow-hidden bg-white p-1 sm:p-2 shrink-0 select-none">
       <div className="grid grid-cols-4 grid-rows-4 gap-[1px] bg-stone-200 border border-stone-200 shadow-xl relative aspect-[4/5.2] sm:aspect-[4/4.8] w-full mx-auto overflow-hidden rounded-xl">
         
+        {/* SVG 连线层 */}
         {activePalace && (
           <svg className="absolute inset-0 w-full h-full pointer-events-none z-40" viewBox="0 0 100 100" preserveAspectRatio="none">
             {(() => {
@@ -103,9 +116,9 @@ export const ZiweiChartView: React.FC<ZiweiChartViewProps> = ({
               return (
                 <>
                   <path d={`M ${pSelf.x} ${pSelf.y} L ${pWealth.x} ${pWealth.y} L ${pCareer.x} ${pCareer.y} Z`} 
-                        fill="rgba(16, 185, 129, 0.02)" stroke="rgba(16, 185, 129, 0.5)" strokeWidth="0.12" strokeDasharray="1,1" />
+                        fill="rgba(79, 70, 229, 0.03)" stroke="rgba(79, 70, 229, 0.4)" strokeWidth="0.12" strokeDasharray="1,1" />
                   <line x1={pSelf.x} y1={pSelf.y} x2={pTravel.x} y2={pTravel.y} 
-                        stroke="rgba(16, 185, 129, 0.7)" strokeWidth="0.08" strokeDasharray="2,1" />
+                        stroke="rgba(147, 51, 234, 0.5)" strokeWidth="0.08" strokeDasharray="2,1" />
                 </>
               );
             })()}
@@ -113,6 +126,7 @@ export const ZiweiChartView: React.FC<ZiweiChartViewProps> = ({
         )}
 
         {chartData.gridMapping.map((branchIndex: any, gridIdx: number) => {
+          // 中庭信息
           if (branchIndex === null) {
             if (gridIdx === 5) return (
               <div key="center" className="col-span-2 row-span-2 bg-white flex flex-col items-center p-2 sm:p-4 relative z-20 overflow-hidden border-2 border-stone-100/50 rounded-lg shadow-inner m-1">
@@ -147,54 +161,75 @@ export const ZiweiChartView: React.FC<ZiweiChartViewProps> = ({
           }
           
           const palace = chartData.palaces[branchIndex];
-          const isActive = activePalaceName === palace.name;
-          const isRelated = activePalace && getSanFangSiZhengIndices(activePalace.zhiIndex).includes(palace.zhiIndex) && !isActive;
+          
+          // 🔥 核心修改：计算关系类型
+          const relation = getRelationType(palace.zhiIndex);
+          const isActive = relation === 'self';
+
+          // 🔥 核心修改：根据关系设置背景色
+          let bgClass = 'bg-white hover:bg-stone-50'; // 默认
+          let borderClass = '';
+          
+          if (relation === 'self') {
+             // 本宫：深蓝背景，高亮
+             bgClass = 'bg-indigo-900 ring-2 ring-inset ring-amber-400 z-30 shadow-xl';
+          } else if (relation === 'opposite') {
+             // 对宫：淡紫色
+             bgClass = 'bg-purple-100/60 ring-1 ring-inset ring-purple-200';
+          } else if (relation === 'trine') {
+             // 三合：淡蓝色
+             bgClass = 'bg-sky-100/60 ring-1 ring-inset ring-sky-200';
+          }
 
           const majorChunks = chunkStars(palace.stars.major, 3);
           const minorChunks = chunkStars(palace.stars.minor, 3);
 
           return (
             <div key={gridIdx} onClick={() => onPalaceClick(palace.name)} 
-                 className={`relative overflow-hidden cursor-pointer transition-all duration-300 ${
-                    isActive ? 'bg-indigo-50/50 ring-2 ring-inset ring-indigo-600 z-30' : 
-                    isRelated ? 'bg-indigo-50/10' : 'bg-white hover:bg-stone-50'
-                 }`}>
+                 className={`relative overflow-hidden cursor-pointer transition-all duration-300 ${bgClass} ${borderClass}`}>
                 
-                <div className="absolute top-1 left-1.5 z-30 flex flex-col items-start leading-none pointer-events-none opacity-40">
-                  <span className="text-[10px] sm:text-[11px] font-serif font-black text-stone-600">{palace.stem}{palace.zhi}</span>
-                  <span className="text-[7px] sm:text-[8px] font-sans font-bold text-stone-400">{palace.daXian}</span>
+                {/* 宫位干支 & 大限 */}
+                <div className="absolute top-1 left-1.5 z-30 flex flex-col items-start leading-none pointer-events-none">
+                  <span className={`text-[10px] sm:text-[11px] font-serif font-black ${isActive ? 'text-amber-100/80' : 'text-stone-600 opacity-60'}`}>
+                      {palace.stem}{palace.zhi}
+                  </span>
+                  <span className={`text-[7px] sm:text-[8px] font-sans font-bold ${isActive ? 'text-white/40' : 'text-stone-400'}`}>
+                      {palace.daXian}
+                  </span>
                 </div>
 
-                {/* 星曜列容器：保持 flex-row-reverse 布局 */}
+                {/* 星曜列 */}
                 <div className="absolute top-2 right-1.5 bottom-10 left-1.5 flex flex-row-reverse items-start justify-start gap-x-3.5 sm:gap-x-5 z-20 overflow-y-auto no-scrollbar pt-1 pl-2">
-                  {/* 主星列 */}
+                  {/* 主星 */}
                   {majorChunks.map((chunk, cIdx) => (
                     <div key={`maj-${cIdx}`} className="flex flex-col items-center shrink-0">
                       {chunk.map((s: any, i: number) => (
-                        <VerticalStar key={i} name={s.name} type="major" brightness={s.brightness} hua={s.hua} />
+                        <VerticalStar key={i} name={s.name} type="major" brightness={s.brightness} hua={s.hua} isDarkBg={isActive} />
                       ))}
                     </div>
                   ))}
 
-                  {/* 辅星列 */}
+                  {/* 辅星 */}
                   {minorChunks.map((chunk, cIdx) => (
                     <div key={`min-${cIdx}`} className={`flex flex-col items-center shrink-0 pt-0.5 ${cIdx > 0 ? 'opacity-60 scale-90' : ''}`}>
                       {chunk.map((s: any, i: number) => (
-                        <VerticalStar key={i} name={s.name} type={s.type} brightness={s.brightness} hua={s.hua} />
+                        <VerticalStar key={i} name={s.name} type={s.type} brightness={s.brightness} hua={s.hua} isDarkBg={isActive} />
                       ))}
                     </div>
                   ))}
                 </div>
                 
-                <div className="absolute bottom-0 left-0 right-0 h-9 z-10 flex items-center justify-center pointer-events-none bg-gradient-to-t from-white via-white/95 to-transparent">
+                {/* 底部宫位名 */}
+                <div className={`absolute bottom-0 left-0 right-0 h-9 z-10 flex items-center justify-center pointer-events-none bg-gradient-to-t ${isActive ? 'from-indigo-900 via-indigo-900/90' : 'from-white via-white/95'} to-transparent`}>
                   <div className={`text-[11px] sm:text-[12px] font-black px-3 py-1 rounded transition-all duration-300 ${
-                    isActive ? 'text-indigo-700 scale-110' : 'text-red-900 opacity-80'
+                    isActive ? 'text-amber-300 scale-110 tracking-widest' : 'text-red-900 opacity-80'
                   }`}>
                     {palace.name}
                   </div>
                 </div>
 
-                <div className="absolute bottom-1 left-1.5 text-[8px] font-bold text-stone-300 pointer-events-none uppercase">
+                {/* 长生状态 */}
+                <div className={`absolute bottom-1 left-1.5 text-[8px] font-bold pointer-events-none uppercase ${isActive ? 'text-white/20' : 'text-stone-300'}`}>
                    {palace.changSheng}
                 </div>
             </div>
