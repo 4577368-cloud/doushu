@@ -14,7 +14,8 @@
     "@google/genai": "^1.34.0",
     "lucide-react": "^0.562.0",
     "lunar-javascript": "1.6.13",
-    "chinese-lunar": "0.1.4"
+    "chinese-lunar": "0.1.4",
+    "@supabase/supabase-js": "^2.39.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
