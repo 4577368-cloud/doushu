@@ -1,12 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-// 🔥 1. 只引入 BottomNav，不再引入 Header，避免命名冲突
 import { BottomNav } from './components/Layout';
 import { AppTab, ChartSubTab, UserProfile, BaziChart, Gender, ModalData, GanZhi, Pillar, BaziReport, BalanceAnalysis } from './types';
 import { calculateBazi, interpretAnnualPillar, interpretLuckPillar, interpretYearPillar, interpretMonthPillar, interpretDayPillar, interpretHourPillar } from './services/baziService';
 import { analyzeBaziStructured } from './services/geminiService';
 import { sendChatMessage, ChatMessage } from './services/chatService';
 import { getArchives, saveArchive, deleteArchive, saveAiReportToArchive, updateArchive } from './services/storageService';
-// 🔥 2. 补全了 'Map' 图标的引入，修复真太阳时报错
 import { Activity, BrainCircuit, RotateCcw, Info, X, Sparkles, Sun, Trash2, MapPin, Map, History, Eye, EyeOff, Compass, Calendar, Clock, Check, BarChart3, CheckCircle, FileText, ClipboardCopy, Maximize2, ChevronRight, User, Edit2, Plus, Tag, ShieldCheck, Crown, Send, MessageCircle, HelpCircle, Gem, ArrowLeftRight, GitMerge } from 'lucide-react';
 import { CHINA_LOCATIONS, FIVE_ELEMENTS, SHEN_SHA_DESCRIPTIONS } from './services/constants';
 
@@ -50,19 +48,25 @@ const getLifeStageStyle = (stage: string) => {
   return 'text-stone-400 bg-stone-50 border border-stone-100';
 };
 
-// 智能排版渲染器
-const SmartTextRenderer: React.FC<{ content: string }> = ({ content }) => {
+// 智能排版渲染器 (支持自定义颜色 & 深色模式适配)
+const SmartTextRenderer: React.FC<{ content: string; className?: string }> = ({ content, className = 'text-stone-700' }) => {
   if (!content) return null;
   const lines = content.split('\n');
+  const isDarkBg = className.includes('text-white');
+
   return (
-    <div className="space-y-3 text-[13px] leading-relaxed text-stone-700">
+    <div className={`space-y-3 text-[13px] leading-relaxed ${className}`}>
       {lines.map((line, idx) => {
         if (line.trim() === '') return <div key={idx} className="h-1" />;
         const isHeader = line.match(/^(\p{Emoji}|🎯|⚡|🌊|🌟|💼|💰|💕|#)/u);
         if (isHeader) {
            return (
-             <div key={idx} className="mt-4 first:mt-0 bg-stone-50 border-l-2 border-indigo-400 pl-3 py-1.5 rounded-r-lg">
-                <span className="font-bold text-stone-900">{line.replace(/#/g, '')}</span>
+             <div key={idx} className={`mt-4 first:mt-0 pl-3 py-1.5 rounded-r-lg border-l-2 ${
+                 isDarkBg 
+                    ? 'bg-white/10 border-amber-400' 
+                    : 'bg-stone-100 border-indigo-400'
+             }`}>
+                <span className={`font-bold ${isDarkBg ? 'text-amber-100' : 'text-stone-900'} opacity-90`}>{line.replace(/#/g, '')}</span>
              </div>
            );
         }
@@ -71,7 +75,7 @@ const SmartTextRenderer: React.FC<{ content: string }> = ({ content }) => {
           <p key={idx} className="text-justify">
             {parts.map((part, i) => {
               if (part.startsWith('**') && part.endsWith('**')) {
-                return <span key={i} className="font-bold text-indigo-700 mx-0.5">{part.slice(2, -2)}</span>;
+                return <span key={i} className={`font-bold mx-0.5 ${isDarkBg ? 'text-amber-300' : 'text-indigo-700'}`}>{part.slice(2, -2)}</span>;
               }
               return part;
             })}
@@ -82,8 +86,7 @@ const SmartTextRenderer: React.FC<{ content: string }> = ({ content }) => {
   );
 };
 
-// --- 🔥 3. 统一 Header 组件 (替代原 Layout Header) ---
-// 这个组件会根据 isVip 自动切换样式，所以不需要再引入外部 Header
+// --- VIP 专属 Header ---
 const AppHeader: React.FC<{ title: string; rightAction?: React.ReactNode; isVip: boolean }> = ({ title, rightAction, isVip }) => (
   <header className={`sticky top-0 z-50 px-5 h-16 flex items-center justify-between transition-all duration-500 ${isVip ? 'bg-[#1c1917] border-b border-amber-900/30 shadow-2xl' : 'bg-white/90 backdrop-blur-md border-b border-stone-200 text-stone-900'}`}>
     <h1 className={`text-lg font-serif font-black tracking-wider flex items-center gap-2.5 ${isVip ? 'text-amber-100' : 'text-stone-900'}`}>
@@ -140,7 +143,8 @@ const VipActivationModal: React.FC<{ onClose: () => void; onActivate: () => void
                             <img src="https://imgus.tangbuy.com/static/images/2026-01-14/d3cfc3391f4b4049855b70428d881cc8-17683802616059959910686892450765.jpg" alt="Payment QR" className="w-full h-full object-contain rounded-lg" />
                         </div>
                         <p className="text-[11px] text-stone-500 text-center max-w-[240px] leading-relaxed">
-                            请使用微信/支付宝扫码支付 <b className="text-stone-900 font-black">¥39.9</b><br/>支付成功后截图联系客服，获取您的专属密钥
+                            请使用微信/支付宝扫码支付 <b className="text-stone-900 font-black">¥39.9</b><br/>
+                            支付成功后截图联系客服，获取您的专属密钥
                         </p>
                     </div>
                     <div className="space-y-2">
@@ -156,19 +160,33 @@ const VipActivationModal: React.FC<{ onClose: () => void; onActivate: () => void
 
 // --- AI 聊天界面 ---
 const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
-    const [messages, setMessages] = useState<ChatMessage[]>([
-        { role: 'assistant', content: `尊贵的 VIP 用户，您好！\n我是您的专属命理师。我已经深度研读了您的命盘（${chart.dayMaster}日主，${chart.pattern.name}），请问您今天想了解哪方面的运势？` }
-    ]);
+    // 聊天记录持久化
+    const [messages, setMessages] = useState<ChatMessage[]>(() => {
+        const key = `chat_history_${chart.profileId}`;
+        const saved = localStorage.getItem(key);
+        if (saved) {
+            try { return JSON.parse(saved); } catch (e) { console.error(e); }
+        }
+        return [
+            { role: 'assistant', content: `尊贵的 VIP 用户，您好！\n我是您的专属命理师。我已经深度研读了您的命盘（${chart.dayMaster}日主，${chart.pattern.name}），请问您今天想了解哪方面的运势？` }
+        ];
+    });
+
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [suggestions, setSuggestions] = useState<string[]>(['我的事业运如何？', '最近财运怎么样？', '感情方面有桃花吗？']);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
+    // 自动保存
+    useEffect(() => {
+        const key = `chat_history_${chart.profileId}`;
+        localStorage.setItem(key, JSON.stringify(messages));
+        scrollToBottom();
+    }, [messages, chart.profileId]);
+
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
-
-    useEffect(() => { scrollToBottom(); }, [messages, loading]);
 
     const handleSend = async (contentOverride?: string) => {
         const msgContent = contentOverride || input;
@@ -182,6 +200,8 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
 
         try {
             const contextMessages = [...messages, userMsg].map(m => ({ role: m.role, content: m.content })).slice(-10);
+            
+            // 预先添加一条空的 assistant 消息用于流式接收
             setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
             
             await sendChatMessage(contextMessages, chart, (chunk) => {
@@ -196,7 +216,11 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
             });
 
         } catch (error) {
-            setMessages(prev => [...prev, { role: 'assistant', content: '抱歉，连接天机（服务器）时出现波动，请稍后再试。' }]);
+            setMessages(prev => {
+                const newMsgs = [...prev];
+                if(newMsgs[newMsgs.length-1].content === '') newMsgs.pop();
+                return [...newMsgs, { role: 'assistant', content: '抱歉，连接天机（服务器）时出现波动，请稍后再试。' }];
+            });
         } finally {
             setLoading(false);
         }
@@ -217,7 +241,10 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
                                 ? 'bg-indigo-600 text-white rounded-tr-none shadow-indigo-200'
                                 : 'bg-white text-stone-800 rounded-tl-none border border-stone-100 shadow-stone-200'
                         }`}>
-                            <SmartTextRenderer content={msg.content} />
+                            <SmartTextRenderer 
+                                content={msg.content} 
+                                className={msg.role === 'user' ? 'text-white' : 'text-stone-800'} 
+                            />
                         </div>
                     </div>
                 ))}
@@ -251,7 +278,7 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
     );
 };
 
-// --- 复用的组件 ---
+// --- 复用的组件 (ReportHistoryModal, DetailModal, BalancePanel, BaziChartGrid) ---
 const ReportHistoryModal: React.FC<{ report: any; onClose: () => void }> = ({ report, onClose }) => {
     if (!report) return null;
     return (
@@ -377,13 +404,11 @@ const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart
 
   return (
     <div className="bg-white border border-stone-300 rounded-3xl overflow-hidden shadow-sm mb-2">
-      {/* 表头 */}
       <div className="grid grid-cols-5 bg-stone-100 border-b border-stone-300 text-center py-2 text-[10px] font-black text-stone-700 uppercase tracking-wider">
         <div className="bg-stone-100 flex items-center justify-center">四柱</div>
         {pillars.map(p => <div key={p.key}>{p.label}</div>)}
       </div>
 
-      {/* 1. 天干 */}
       <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[64px]">
         <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">天干</div>
         {pillars.map(p => (
@@ -394,7 +419,6 @@ const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart
         ))}
       </div>
 
-      {/* 2. 地支 */}
       <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[50px]">
         <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">地支</div>
         {pillars.map(p => (
@@ -404,7 +428,6 @@ const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart
         ))}
       </div>
 
-      {/* 3. 藏干 */}
       <div className="grid grid-cols-5 border-b border-stone-200 items-stretch">
         <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">藏干</div>
         {pillars.map(p => (
@@ -419,7 +442,6 @@ const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart
         ))}
       </div>
 
-      {/* 4. 星运 */}
       <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[30px]">
         <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">星运</div>
         {pillars.map(p => {
@@ -432,7 +454,6 @@ const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart
         })}
       </div>
 
-      {/* 5. 神煞 */}
       <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[40px]">
         <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">神煞</div>
         {pillars.map(p => (
@@ -442,7 +463,6 @@ const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart
         ))}
       </div>
 
-      {/* 6. 纳音 */}
       <div className="grid grid-cols-5 items-stretch min-h-[30px]">
         <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">纳音</div>
         {pillars.map(p => (
@@ -489,6 +509,16 @@ const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowMo
       tabs.push({ id: ChartSubTab.CHAT, label: 'AI 对话' });
   }
 
+  // 🔥 新增：校验逻辑
+  const handleAiAnalysisWrapper = () => {
+      // 校验：非VIP且无KEY，禁止调用
+      if (!isVip && !apiKey) {
+          alert("请先填写 API Key，或开通 VIP 解锁免 Key 特权");
+          return;
+      }
+      onAiAnalysis();
+  };
+
   return (
     <div className="flex flex-col h-full bg-white">
       <div className="flex border-b border-stone-200 bg-white shadow-sm overflow-x-auto no-scrollbar">
@@ -517,6 +547,7 @@ const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowMo
                         <div className="bg-amber-50/50 p-2 rounded-xl border border-amber-200 text-amber-950 font-black text-center text-[11px] tracking-wide">{chart.startLuckText}</div>
                     </div>
                 </div>
+                {/* 升级后的网格 */}
                 <BaziChartGrid chart={chart} onOpenModal={openDetailedModal} />
                 <BalancePanel balance={chart.balance} wuxing={chart.wuxingCounts} dm={chart.dayMaster} />
             </div>
@@ -540,7 +571,8 @@ const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowMo
                             <button onClick={()=>setShowApiKey(!showApiKey)} className="absolute right-3 top-9 text-stone-400">{showApiKey?<EyeOff size={18}/>:<Eye size={18}/>}</button>
                         </div>
                     )}
-                    <button onClick={onAiAnalysis} disabled={loadingAi} className={`w-full py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all ${loadingAi ? 'bg-stone-100 text-stone-400' : 'bg-stone-950 text-white active:scale-95 shadow-lg'}`}>
+                    {/* 🔥 替换为 handleAiAnalysisWrapper */}
+                    <button onClick={handleAiAnalysisWrapper} disabled={loadingAi} className={`w-full py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all ${loadingAi ? 'bg-stone-100 text-stone-400' : 'bg-stone-950 text-white active:scale-95 shadow-lg'}`}>
                       {loadingAi ? <Activity className="animate-spin" size={20}/> : <BrainCircuit size={20}/>} {loadingAi ? '正在深度推演...' : '生成大师解盘报告'}
                     </button>
                  </div>
@@ -913,7 +945,6 @@ const App: React.FC = () => {
   };
 
   return (
-    // 全局背景：VIP 是深色暖金渐变，普通用户是冷灰
     <div className={`flex flex-col h-screen overflow-hidden text-stone-950 font-sans select-none transition-colors duration-700 ${isVip ? 'bg-[#181816]' : 'bg-[#f5f5f4]'}`}>
       
       {/* 使用 AppHeader (替代默认 Header)，自动适配 VIP 样式 */}
@@ -926,7 +957,7 @@ const App: React.FC = () => {
       <div className="flex-1 overflow-hidden relative">
         {currentTab === AppTab.HOME ? <HomeView onGenerate={handleGenerate} archives={archives} /> : 
          currentTab === AppTab.CHART && baziChart && currentProfile ? <BaziChartView profile={currentProfile} chart={baziChart} onShowModal={setModalData} onSaveReport={(r:string, t:'bazi'|'ziwei')=>saveAiReportToArchive(currentProfile.id, r, t)} onAiAnalysis={handleAiAnalysis} loadingAi={loadingAi} aiReport={aiReport} isVip={isVip} /> :
-         currentTab === AppTab.ZIWEI && currentProfile ? <ZiweiView profile={currentProfile} onSaveReport={(r)=>saveAiReportToArchive(currentProfile.id, r, 'ziwei')} /> : 
+         currentTab === AppTab.ZIWEI && currentProfile ? <ZiweiView profile={currentProfile} onSaveReport={(r)=>saveAiReportToArchive(currentProfile.id, r, 'ziwei')} isVip={isVip} /> : 
          currentTab === AppTab.ARCHIVE ? <ArchiveView archives={archives} setArchives={setArchives} onSelect={handleGenerate} isVip={isVip} onVipClick={() => setShowVipModal(true)} /> :
          <HomeView onGenerate={handleGenerate} archives={archives} />}
       </div>

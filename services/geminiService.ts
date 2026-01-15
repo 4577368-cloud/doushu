@@ -1,7 +1,5 @@
-
 import { BaziChart } from "../types";
 
-// 报告结构类型
 export interface BaziReport {
   title: string;
   copyText: string;
@@ -11,42 +9,14 @@ export interface BaziReport {
     content: string;
     type: 'text';
   }[];
-  meta: {
-    generatedAt: string;
-    platform: string;
-    year: number;
-  };
 }
-
-const identifyPlatform = (apiKey: string): { platform: 'deepseek' | 'dashscope' | 'unknown', baseURL: string, model: string } => {
-  const trimmedKey = apiKey.trim();
-  if (trimmedKey.length > 30 && trimmedKey.startsWith('sk-')) {
-    if (trimmedKey.includes('ali') || trimmedKey.length > 45) {
-      return {
-        platform: 'dashscope',
-        baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
-        model: 'qwen-plus'
-      };
-    }
-    return {
-      platform: 'deepseek',
-      baseURL: 'https://api.deepseek.com/v1/chat/completions',
-      model: 'deepseek-chat'
-    };
-  }
-  return { platform: 'unknown', baseURL: '', model: '' };
-};
 
 export const analyzeBaziStructured = async (
   chart: BaziChart,
-  apiKey: string,
-  question?: string
+  apiKey?: string // 这里的 apiKey 可能是空 (VIP)
 ): Promise<BaziReport> => {
-  const config = identifyPlatform(apiKey);
-  if (config.platform === 'unknown') {
-    throw new Error('请提供有效的 sk- 开头 API KEY');
-  }
-
+  
+  // 1. 构建提示词 (Prompt)
   const analysisYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
 
@@ -83,48 +53,55 @@ JSON 结构规范：
 2. content 字段必须为纯文本字符串，使用 \\n 换行，严禁嵌套任何 JSON 对象或数组。
 3. 语言风格：将命理术语与金融术语无缝衔接，专业且极具穿透力。`;
 
-  const userPrompt = `请基于以下命盘生成深度财富分析报告：\n${chartDescription}${question ? `\n用户特别关注：${question}` : ''}`;
+  const userPrompt = `请基于以下命盘生成深度财富分析报告：\n${chartDescription}`;
 
-  const response = await fetch(config.baseURL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey.trim()}`
-    },
-    body: JSON.stringify({
-      model: config.model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ],
-      temperature: 0.7,
-      response_format: { type: "json_object" }
-    })
-  });
+  try {
+    // 2. 发送请求给后端代理
+    // 无论有没有 Key，都发给后端。如果没有 Key，后端会尝试用 VIP 环境变量。
+    const response = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        apiKey: apiKey || '', // 传给后端，如果是空字符串，后端会处理
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
+        model: 'deepseek-chat',
+        response_format: { type: "json_object" } // 强制 JSON
+      })
+    });
 
-  if (!response.ok) throw new Error(`请求失败: ${response.status}`);
-
-  const data = await response.json();
-  const rawContent = data.choices[0].message.content;
-  const parsed = JSON.parse(rawContent);
-
-  const processedSections = (parsed.sections || []).map((s: any) => ({
-    id: s.id || String(Math.random()),
-    title: s.title || "分析项",
-    content: typeof s.content === 'string' ? s.content : JSON.stringify(s.content, null, 2),
-    type: 'text' as const
-  }));
-
-  const copyText = processedSections.map((s: any) => `【${s.title}】\n${s.content}`).join('\n\n');
-
-  return {
-    title: "大师解盘报告",
-    copyText,
-    sections: processedSections,
-    meta: {
-      generatedAt: new Date().toISOString(),
-      platform: config.platform,
-      year: analysisYear
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || `请求失败: ${response.status}`);
     }
-  };
+
+    const data = await response.json();
+    
+    // 3. 解析结果
+    const rawContent = data.choices[0].message.content;
+    const parsed = JSON.parse(rawContent);
+
+    const processedSections = (parsed.sections || []).map((s: any) => ({
+      id: s.id || String(Math.random()),
+      title: s.title || "分析项",
+      content: typeof s.content === 'string' ? s.content : JSON.stringify(s.content, null, 2),
+      type: 'text' as const
+    }));
+
+    const copyText = processedSections.map((s: any) => `【${s.title}】\n${s.content}`).join('\n\n');
+
+    return {
+      title: "大师解盘报告",
+      copyText,
+      sections: processedSections
+    };
+
+  } catch (e) {
+    console.error("AI Request Failed:", e);
+    throw e;
+  }
 };
