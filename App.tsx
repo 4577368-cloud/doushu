@@ -1,22 +1,52 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { BottomNav } from './components/Layout';
-// ✅ 关键路径修正 1: 指向 services 文件夹
+// ✅ 引入数据库客户端
 import { supabase } from './services/supabase';
-// ✅ 关键路径修正 2: 指向根目录的 Auth 组件
+// ✅ 引入独立的 Auth 组件
 import { Auth } from './Auth';
+// 引入类型定义
 import { AppTab, ChartSubTab, UserProfile, BaziChart, Gender, ModalData, GanZhi, Pillar, BaziReport, BalanceAnalysis, HistoryItem } from './types';
+// 引入业务服务
 import { calculateBazi, interpretAnnualPillar, interpretLuckPillar, interpretYearPillar, interpretMonthPillar, interpretDayPillar, interpretHourPillar } from './services/baziService';
 import { analyzeBaziStructured, BaziReport as AiBaziReport } from './services/geminiService';
 import { sendChatMessage, ChatMessage } from './services/chatService';
-// 引入新的异步存储服务
 import { getArchives, saveArchive, deleteArchive, saveAiReportToArchive, updateArchive } from './services/storageService';
-import { Activity, BrainCircuit, RotateCcw, Info, X, Sparkles, Sun, Trash2, MapPin, Map, History, Eye, EyeOff, Compass, Calendar, Clock, Check, BarChart3, CheckCircle, FileText, ClipboardCopy, Maximize2, ChevronRight, User, Edit2, Plus, Tag, ShieldCheck, Crown, Send, MessageCircle, HelpCircle, Gem, ArrowLeftRight, GitMerge, LogOut, Mail, Cloud, Save } from 'lucide-react';
+// 引入图标
+import { Activity, BrainCircuit, RotateCcw, Info, X, Sparkles, Sun, Trash2, MapPin, Map, History, Eye, EyeOff, Compass, Calendar, Clock, Check, BarChart3, CheckCircle, FileText, ClipboardCopy, Maximize2, ChevronRight, User, Edit2, Plus, Tag, ShieldCheck, Crown, Send, MessageCircle, HelpCircle, Gem, ArrowLeftRight, GitMerge, LogOut, Mail, Cloud, Save, AlertTriangle } from 'lucide-react';
+// 引入常量
 import { CHINA_LOCATIONS, FIVE_ELEMENTS, SHEN_SHA_DESCRIPTIONS } from './services/constants';
 
+// 引入子页面组件
 import ZiweiView from './components/ZiweiView';
 import { BaziAnalysisView } from './components/BaziAnalysisView';
 
-// --- 基础工具组件 ---
+// --- 🔥 关键新增：防白屏错误边界组件 ---
+// 如果某个组件渲染出错，它会捕获错误并显示提示，而不是让整个页面变白
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, error: any }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: any) { return { hasError: true, error }; }
+  componentDidCatch(error: any, errorInfo: any) { console.error("Uncaught error:", error, errorInfo); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full p-6 bg-rose-50 text-center">
+          <AlertTriangle size={48} className="text-rose-500 mb-4" />
+          <h2 className="text-lg font-bold text-rose-800 mb-2">排盘显示出错了</h2>
+          <p className="text-xs text-rose-600 mb-4 bg-white p-3 rounded border border-rose-200 w-full overflow-auto text-left font-mono">
+            {this.state.error?.toString() || "未知错误"}
+          </p>
+          <button onClick={() => window.location.reload()} className="px-4 py-2 bg-rose-600 text-white rounded-lg shadow font-bold text-sm">刷新页面重试</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// --- 基础 UI 组件 (完整保留) ---
 const ElementText: React.FC<{ text: string; className?: string; showFiveElement?: boolean }> = ({ text, className = '', showFiveElement = false }) => {
   if (!text) return null;
   const element = FIVE_ELEMENTS[text] || text;
@@ -44,7 +74,6 @@ const ShenShaBadge: React.FC<{ name: string }> = ({ name }) => {
   return <span className={`text-[8px] px-1 py-0.5 rounded border whitespace-nowrap leading-none ${style}`}>{name.length > 2 ? name.slice(0, 2) : name}</span>;
 };
 
-// 星运颜色辅助函数
 const getLifeStageStyle = (stage: string) => {
   if (['帝旺', '临官'].includes(stage)) return 'text-rose-600 bg-rose-50 border border-rose-100';
   if (['长生', '冠带'].includes(stage)) return 'text-amber-600 bg-amber-50 border border-amber-100';
@@ -53,7 +82,6 @@ const getLifeStageStyle = (stage: string) => {
   return 'text-stone-400 bg-stone-50 border border-stone-100';
 };
 
-// 智能排版渲染器
 const SmartTextRenderer: React.FC<{ content: string; className?: string }> = ({ content, className = 'text-stone-700' }) => {
   if (!content) return null;
   const lines = content.split('\n');
@@ -91,7 +119,7 @@ const SmartTextRenderer: React.FC<{ content: string; className?: string }> = ({ 
   );
 };
 
-// --- VIP 专属 Header ---
+// --- VIP 顶部栏 ---
 const AppHeader: React.FC<{ title: string; rightAction?: React.ReactNode; isVip: boolean }> = ({ title, rightAction, isVip }) => (
   <header className={`sticky top-0 z-50 px-5 h-16 flex items-center justify-between transition-all duration-500 ${isVip ? 'bg-[#1c1917] border-b border-amber-900/30 shadow-2xl' : 'bg-white/90 backdrop-blur-md border-b border-stone-200 text-stone-900'}`}>
     <h1 className={`text-lg font-serif font-black tracking-wider flex items-center gap-2.5 ${isVip ? 'text-amber-100' : 'text-stone-900'}`}>
@@ -109,7 +137,7 @@ const AppHeader: React.FC<{ title: string; rightAction?: React.ReactNode; isVip:
   </header>
 );
 
-// --- VIP 激活弹窗 ---
+// --- VIP 支付弹窗 ---
 const VipActivationModal: React.FC<{ onClose: () => void; onActivate: () => void }> = ({ onClose, onActivate }) => {
     const [code, setCode] = useState('');
     const [error, setError] = useState('');
@@ -165,7 +193,6 @@ const VipActivationModal: React.FC<{ onClose: () => void; onActivate: () => void
 
 // --- AI 聊天界面 ---
 const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
-    // 1. 初始化时尝试从 localStorage 读取历史记录 (这里是聊天记录，仍然可以是本地的，或者你也可以迁移到 Supabase)
     const [messages, setMessages] = useState<ChatMessage[]>(() => {
         const key = `chat_history_${chart.profileId}`;
         const saved = localStorage.getItem(key);
@@ -182,7 +209,6 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
     const [suggestions, setSuggestions] = useState<string[]>(['我的事业运如何？', '最近财运怎么样？', '感情方面有桃花吗？']);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    // 2. 自动保存聊天记录到本地
     useEffect(() => {
         const key = `chat_history_${chart.profileId}`;
         localStorage.setItem(key, JSON.stringify(messages));
@@ -200,7 +226,7 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
         const userMsg: ChatMessage = { role: 'user', content: msgContent };
         setMessages(prev => [...prev, userMsg]);
         setInput('');
-        setSuggestions([]); // 发送前清空建议
+        setSuggestions([]); 
         setLoading(true);
 
         let fullResponseBuffer = "";
@@ -511,7 +537,7 @@ const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart
   );
 };
 
-// --- 5. 综合图表视图组件 (🔥 增加手动保存按钮) ---
+// --- 5. 综合图表视图组件 (🔥 增加手动保存按钮 + ErrorBoundary) ---
 const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowModal: any; onSaveReport: any; onAiAnalysis: any; loadingAi: boolean; aiReport: AiBaziReport | null; isVip: boolean; onManualSave: () => void }> = ({ profile, chart, onShowModal, onSaveReport, onAiAnalysis, loadingAi, aiReport, isVip, onManualSave }) => {
   const [activeSubTab, setActiveSubTab] = useState<ChartSubTab>(ChartSubTab.DETAIL);
   const [apiKey, setApiKey] = useState(() => sessionStorage.getItem('ai_api_key') || '');
@@ -541,26 +567,11 @@ const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowMo
   ];
   if (isVip) tabs.push({ id: ChartSubTab.CHAT, label: 'AI 对话' });
 
-const handleManualSave = async () => {
-    if (!currentProfile || !session) return alert('未登录或无数据');
-    try {
-        const updatedList = await saveArchive(currentProfile);
-        setArchives(updatedList);
-        
-        // 🔥 智能修正：保存成功后，把当前的“临时档案”替换成“正式档案”（带UUID）
-        // 这样你再点保存，就是更新而不是新建了
-        if (updatedList.length > 0) {
-            // 取列表第一个（因为是按时间倒序，最新的肯定在最前）
-            const justSaved = updatedList[0];
-            // 简单校验一下名字是否匹配，防止错乱
-            if (justSaved && justSaved.name === currentProfile.name) {
-                setCurrentProfile(justSaved);
-            }
-        }
-    } catch(e) {
-        // 错误已经在 storageService 里弹窗了，这里不需要操作
-    }
-};
+  const handleManualSaveWrapper = async () => {
+      setIsSaving(true);
+      await onManualSave();
+      setTimeout(() => setIsSaving(false), 1000);
+  };
 
   const handleAiAnalysisWrapper = () => {
       if (!isVip && !apiKey) {
@@ -624,7 +635,7 @@ const handleManualSave = async () => {
                             <button onClick={()=>setShowApiKey(!showApiKey)} className="absolute right-3 top-9 text-stone-400">{showApiKey?<EyeOff size={18}/>:<Eye size={18}/>}</button>
                         </div>
                     )}
-                    <button onClick={handleAiAnalysisWrapper} disabled={loadingAi} className={`w-full py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all ${loadingAi ? 'bg-stone-100 text-stone-400' : 'bg-stone-950 text-white active:scale-95 shadow-lg'}`}>
+                    <button onClick={() => { if(!isVip && !apiKey) return alert('请输入API Key'); onAiAnalysis(); }} disabled={loadingAi} className={`w-full py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all ${loadingAi ? 'bg-stone-100 text-stone-400' : 'bg-stone-950 text-white active:scale-95 shadow-lg'}`}>
                       {loadingAi ? <Activity className="animate-spin" size={20}/> : <BrainCircuit size={20}/>} {loadingAi ? '正在深度推演...' : '生成大师解盘报告'}
                     </button>
                  </div>
@@ -661,9 +672,7 @@ const handleManualSave = async () => {
   );
 };
 
-// ... (HomeView, ArchiveView 等组件保持不变，继续保留下面的代码) ...
-
-// --- 6. 首页视图组件 ---
+// --- 6. 首页视图组件 (完善版) ---
 const HomeView: React.FC<{ onGenerate: (profile: UserProfile) => void; archives: UserProfile[]; }> = ({ onGenerate, archives }) => {
   const [name, setName] = useState('');
   const [gender, setGender] = useState<Gender>('male');
@@ -703,7 +712,6 @@ const HomeView: React.FC<{ onGenerate: (profile: UserProfile) => void; archives:
   const citiesForProvince = CHINA_LOCATIONS.find(p => p.name === province)?.cities || [];
 
   return (
-    // 🔥 修复点：移除了 pb-24，并将内容居中显示
     <div className="flex flex-col h-full bg-[#fafaf9] overflow-y-auto no-scrollbar">
        <div className="min-h-full flex flex-col justify-center p-6 pb-10 max-w-md mx-auto w-full">
            <div className="text-center mb-8 mt-2">
@@ -827,7 +835,7 @@ const HomeView: React.FC<{ onGenerate: (profile: UserProfile) => void; archives:
   );
 };
 
-// --- 7. 档案视图组件 (整合了登录逻辑的 UI 显示) ---
+// --- 7. 档案视图组件 ---
 const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelect: any; isVip: boolean; onVipClick: () => void; session: any; onLogout: () => void }> = ({ archives, setArchives, onSelect, isVip, onVipClick, session, onLogout }) => {
     const [editingProfile, setEditingProfile] = useState<UserProfile | null>(null);
     const [viewingReports, setViewingReports] = useState<UserProfile | null>(null);
@@ -860,7 +868,6 @@ const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelec
 
     return (
         <div className="h-full flex flex-col bg-[#f5f5f4] overflow-y-auto pb-24">
-             {/* 登录用户信息栏 */}
              {session && (
                  <div className="bg-white border-b border-stone-200 px-5 py-4 flex items-center justify-between sticky top-0 z-10 shadow-sm">
                      <div className="flex items-center gap-3">
@@ -879,7 +886,6 @@ const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelec
              )}
 
             <div className="p-5 space-y-4">
-                {/* VIP 购买卡片 (仅非 VIP 显示) */}
                 {!isVip && (
                     <div onClick={onVipClick} className="bg-gradient-to-r from-stone-900 to-stone-700 rounded-3xl p-5 shadow-lg relative overflow-hidden cursor-pointer group hover:scale-[1.02] transition-transform">
                         <div className="absolute top-0 right-0 p-4 opacity-10"><Crown size={80} /></div>
@@ -966,67 +972,74 @@ const App: React.FC = () => {
   const [archives, setArchives] = useState<UserProfile[]>([]);
   const [loadingAi, setLoadingAi] = useState(false);
   const [aiReport, setAiReport] = useState<AiBaziReport | null>(null);
-  const [session, setSession] = useState<any>(null); // 🔥 新增：Session 状态
-   
-  // VIP 状态
+  const [session, setSession] = useState<any>(null);
   const [isVip, setIsVip] = useState(() => localStorage.getItem('is_vip_user') === 'true');
   const [showVipModal, setShowVipModal] = useState(false);
 
-  // 🔥 新增：初始化和监听登录状态
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-    });
-
-    const { data: { subscription }, } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
-
+    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session));
     return () => subscription.unsubscribe();
   }, []);
 
-  // 🔥 监听 Session 变化加载档案
   useEffect(() => {
     const loadData = async () => {
         if (session) {
             const data = await getArchives();
             setArchives(data);
         } else {
-            setArchives([]); // 未登录清空档案
+            setArchives([]);
         }
     };
     loadData();
   }, [session]);
 
-  const handleGenerate = async (profile: UserProfile) => {
+  const handleGenerate = (profile: UserProfile) => {
     try {
-        const newBazi = calculateBazi(profile);
+        // 🔥 关键修正：确保日期格式安全
+        let safeDate = profile.birthDate;
+        if (safeDate.length === 8 && !safeDate.includes('-')) {
+            safeDate = `${safeDate.slice(0, 4)}-${safeDate.slice(4, 6)}-${safeDate.slice(6, 8)}`;
+        }
         
-        // 🔥 核心修改：极速排盘逻辑 (UI先行，后台保存)
-        // 1. 立即更新 UI (不等待数据库)
+        const newBazi = calculateBazi({ ...profile, birthDate: safeDate });
+        
         setCurrentProfile(profile);
         setBaziChart(newBazi);
         setCurrentTab(AppTab.CHART);
         setAiReport(null);
 
-        // 2. 后台异步保存 (如果已登录)
+        // 后台异步保存
         if (session) {
             saveArchive(profile)
-              .then(updatedList => setArchives(updatedList))
+              .then(updatedList => {
+                  setArchives(updatedList);
+                  // 如果是新建档案，回填 ID
+                  if (updatedList.length > 0 && updatedList[0].name === profile.name) {
+                      setCurrentProfile(prev => prev ? { ...prev, id: updatedList[0].id } : null);
+                  }
+              })
               .catch(err => console.error("后台自动保存失败", err));
         }
-    } catch (e) { alert("排盘失败"); }
+    } catch (e) { 
+        console.error("排盘崩溃:", e);
+        alert("排盘失败，请检查出生日期格式是否正确"); 
+    }
   };
 
-  // 🔥 新增：手动保存功能 (给用户安全感)
   const handleManualSave = async () => {
       if (!currentProfile || !session) return alert('未登录或无数据');
       try {
-          const updated = await saveArchive(currentProfile);
-          setArchives(updated);
-          // alert('保存成功'); // 可以选择不弹窗，用按钮状态提示
+          const updatedList = await saveArchive(currentProfile);
+          setArchives(updatedList);
+          if (updatedList.length > 0) {
+              const justSaved = updatedList[0];
+              if (justSaved.name === currentProfile.name) {
+                  setCurrentProfile(justSaved);
+              }
+          }
       } catch(e) {
-          alert('保存失败，请重试');
+          // storageService 已处理报错
       }
   };
 
@@ -1038,14 +1051,11 @@ const App: React.FC = () => {
 
   const handleAiAnalysis = async () => {
     const key = sessionStorage.getItem('ai_api_key');
-     
     setLoadingAi(true);
     try {
       const result = await analyzeBaziStructured(baziChart!, key || undefined);
       setAiReport(result);
       if (currentProfile && session) {
-        // 只有登录才自动保存报告
-        // saveAiReportToArchive 也是异步的
         const updated = await saveAiReportToArchive(currentProfile.id, result.copyText, 'bazi');
         setArchives(updated);
       }
@@ -1056,48 +1066,32 @@ const App: React.FC = () => {
     }
   };
 
-  // 🔥 渲染逻辑修改
   const renderContent = () => {
       switch (currentTab) {
           case AppTab.HOME:
               return <HomeView onGenerate={handleGenerate} archives={archives} />;
           case AppTab.CHART:
               return baziChart && currentProfile ? (
-                  <BaziChartView 
-                    profile={currentProfile} 
-                    chart={baziChart} 
-                    onShowModal={setModalData} 
-                    onSaveReport={async (r:string, t:'bazi'|'ziwei')=> { const updated = await saveAiReportToArchive(currentProfile.id, r, t); setArchives(updated); }} 
-                    onAiAnalysis={handleAiAnalysis} 
-                    loadingAi={loadingAi} 
-                    aiReport={aiReport} 
-                    isVip={isVip} 
-                    onManualSave={handleManualSave} // 传递手动保存函数
-                  />
+                  // 🔥 加上 ErrorBoundary 防止白屏
+                  <ErrorBoundary>
+                      <BaziChartView 
+                        profile={currentProfile} 
+                        chart={baziChart} 
+                        onShowModal={setModalData} 
+                        onSaveReport={async (r:string, t:'bazi'|'ziwei')=> { const updated = await saveAiReportToArchive(currentProfile.id, r, t); setArchives(updated); }} 
+                        onAiAnalysis={handleAiAnalysis} 
+                        loadingAi={loadingAi} 
+                        aiReport={aiReport} 
+                        isVip={isVip} 
+                        onManualSave={handleManualSave} 
+                      />
+                  </ErrorBoundary>
               ) : null;
           case AppTab.ZIWEI:
-              // 注意：onSaveReport 也要处理异步
               return currentProfile ? <ZiweiView profile={currentProfile} onSaveReport={async (r) => { const updated = await saveAiReportToArchive(currentProfile.id, r, 'ziwei'); setArchives(updated); }} isVip={isVip} /> : null;
           case AppTab.ARCHIVE:
-              // 🔥 核心修改：如果未登录，显示登录组件；否则显示档案列表
-              if (!session) {
-                  return (
-                      <div className="flex flex-col items-center justify-center h-full p-6 bg-[#f5f5f4]">
-                          <Auth onLoginSuccess={() => { /* session listener will handle update */ }} />
-                      </div>
-                  );
-              }
-              return (
-                  <ArchiveView 
-                      archives={archives} 
-                      setArchives={setArchives} 
-                      onSelect={handleGenerate} 
-                      isVip={isVip} 
-                      onVipClick={() => setShowVipModal(true)} 
-                      session={session}
-                      onLogout={() => supabase.auth.signOut()}
-                  />
-              );
+              if (!session) return <div className="flex flex-col items-center justify-center h-full p-6 bg-[#f5f5f4]"><Auth onLoginSuccess={()=>{}} /></div>;
+              return <ArchiveView archives={archives} setArchives={setArchives} onSelect={handleGenerate} isVip={isVip} onVipClick={() => setShowVipModal(true)} session={session} onLogout={() => supabase.auth.signOut()}/>;
           default:
               return <HomeView onGenerate={handleGenerate} archives={archives} />;
       }
@@ -1105,20 +1099,9 @@ const App: React.FC = () => {
 
   return (
     <div className={`flex flex-col h-screen overflow-hidden text-stone-950 font-sans select-none transition-colors duration-700 ${isVip ? 'bg-[#181816]' : 'bg-[#f5f5f4]'}`}>
-       
-      {/* 使用 AppHeader (替代默认 Header)，自动适配 VIP 样式 */}
-      <AppHeader 
-        title={currentTab === AppTab.HOME ? '玄枢命理' : currentProfile?.name || '排盘'} 
-        rightAction={currentTab !== AppTab.HOME && <button onClick={()=>{setCurrentProfile(null);setCurrentTab(AppTab.HOME);setAiReport(null);}} className={`p-2 rounded-full transition-colors ${isVip ? 'hover:bg-white/10 text-stone-300' : 'hover:bg-stone-100 text-stone-700'}`}><RotateCcw size={18} /></button>}
-        isVip={isVip}
-      />
-       
-      <div className="flex-1 overflow-hidden relative">
-        {renderContent()}
-      </div>
-       
+      <AppHeader title={currentTab === AppTab.HOME ? '玄枢命理' : currentProfile?.name || '排盘'} rightAction={currentTab !== AppTab.HOME && <button onClick={()=>{setCurrentProfile(null);setCurrentTab(AppTab.HOME);setAiReport(null);}} className={`p-2 rounded-full transition-colors ${isVip ? 'hover:bg-white/10 text-stone-300' : 'hover:bg-stone-100 text-stone-700'}`}><RotateCcw size={18} /></button>} isVip={isVip} />
+      <div className="flex-1 overflow-hidden relative">{renderContent()}</div>
       <BottomNav currentTab={currentTab} onTabChange={setCurrentTab} />
-       
       {modalData && <DetailModal data={modalData} chart={baziChart} onClose={() => setModalData(null)} />}
       {showVipModal && <VipActivationModal onClose={() => setShowVipModal(false)} onActivate={handleActivateVip} />}
     </div>
