@@ -10,7 +10,7 @@ import { analyzeBaziStructured, BaziReport as AiBaziReport } from './services/ge
 import { sendChatMessage, ChatMessage } from './services/chatService';
 // 引入新的异步存储服务
 import { getArchives, saveArchive, deleteArchive, saveAiReportToArchive, updateArchive } from './services/storageService';
-import { Activity, BrainCircuit, RotateCcw, Info, X, Sparkles, Sun, Trash2, MapPin, Map, History, Eye, EyeOff, Compass, Calendar, Clock, Check, BarChart3, CheckCircle, FileText, ClipboardCopy, Maximize2, ChevronRight, User, Edit2, Plus, Tag, ShieldCheck, Crown, Send, MessageCircle, HelpCircle, Gem, ArrowLeftRight, GitMerge, LogOut, Mail } from 'lucide-react';
+import { Activity, BrainCircuit, RotateCcw, Info, X, Sparkles, Sun, Trash2, MapPin, Map, History, Eye, EyeOff, Compass, Calendar, Clock, Check, BarChart3, CheckCircle, FileText, ClipboardCopy, Maximize2, ChevronRight, User, Edit2, Plus, Tag, ShieldCheck, Crown, Send, MessageCircle, HelpCircle, Gem, ArrowLeftRight, GitMerge, LogOut, Mail, Cloud, Save } from 'lucide-react';
 import { CHINA_LOCATIONS, FIVE_ELEMENTS, SHEN_SHA_DESCRIPTIONS } from './services/constants';
 
 import ZiweiView from './components/ZiweiView';
@@ -511,31 +511,23 @@ const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart
   );
 };
 
-// --- 5. 综合图表视图组件 (修正了数据加载逻辑) ---
-const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowModal: any; onSaveReport: any; onAiAnalysis: any; loadingAi: boolean; aiReport: AiBaziReport | null; isVip: boolean }> = ({ profile, chart, onShowModal, onSaveReport, onAiAnalysis, loadingAi, aiReport, isVip }) => {
+// --- 5. 综合图表视图组件 (🔥 增加手动保存按钮) ---
+const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowModal: any; onSaveReport: any; onAiAnalysis: any; loadingAi: boolean; aiReport: AiBaziReport | null; isVip: boolean; onManualSave: () => void }> = ({ profile, chart, onShowModal, onSaveReport, onAiAnalysis, loadingAi, aiReport, isVip, onManualSave }) => {
   const [activeSubTab, setActiveSubTab] = useState<ChartSubTab>(ChartSubTab.DETAIL);
   const [apiKey, setApiKey] = useState(() => sessionStorage.getItem('ai_api_key') || '');
   const [showApiKey, setShowApiKey] = useState(false);
   const [archives, setArchives] = useState<UserProfile[]>([]);
   const [selectedHistoryReport, setSelectedHistoryReport] = useState<any | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // 监听 aiReport 更新，重新拉取档案（因为报告保存后档案会更新）
   useEffect(() => { 
-    const loadData = async () => {
-        const data = await getArchives();
-        setArchives(data);
-    };
-    loadData();
+    getArchives().then(setArchives);
   }, [aiReport]);
 
   const allHistoryReports = useMemo(() => {
       const all: any[] = [];
       archives.forEach(user => {
-          if (user.aiReports && user.aiReports.length > 0) {
-              user.aiReports.forEach(report => {
-                  all.push({ ...report, userName: user.name, userGender: user.gender });
-              });
-          }
+          if (user.aiReports) user.aiReports.forEach(r => all.push({ ...r, userName: user.name }));
       });
       return all.sort((a, b) => b.date - a.date);
   }, [archives]);
@@ -547,10 +539,13 @@ const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowMo
       { id: ChartSubTab.BASIC, label: '八字命盘' },
       { id: ChartSubTab.ANALYSIS, label: '大师解盘' }
   ];
+  if (isVip) tabs.push({ id: ChartSubTab.CHAT, label: 'AI 对话' });
 
-  if (isVip) {
-      tabs.push({ id: ChartSubTab.CHAT, label: 'AI 对话' });
-  }
+  const handleManualSaveWrapper = async () => {
+      setIsSaving(true);
+      await onManualSave();
+      setTimeout(() => setIsSaving(false), 1000);
+  };
 
   const handleAiAnalysisWrapper = () => {
       if (!isVip && !apiKey) {
@@ -562,19 +557,26 @@ const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowMo
 
   return (
     <div className="flex flex-col h-full bg-white">
-      <div className="flex border-b border-stone-200 bg-white shadow-sm overflow-x-auto no-scrollbar">
-        {tabs.map(tab => (
-           <button key={tab.id} onClick={() => setActiveSubTab(tab.id as ChartSubTab)} className={`flex-1 min-w-[80px] py-3 text-[11px] font-black border-b-2 transition-all ${activeSubTab === tab.id ? 'border-stone-950 text-stone-950' : 'border-transparent text-stone-500'} ${tab.id === ChartSubTab.CHAT ? 'text-indigo-600' : ''}`}>
-               {tab.id === ChartSubTab.CHAT ? <span className="flex items-center justify-center gap-1"><Sparkles size={12}/> {tab.label}</span> : tab.label}
-           </button>
-        ))}
+      {/* 顶部操作栏 */}
+      <div className="flex border-b border-stone-200 bg-white shadow-sm overflow-x-auto no-scrollbar justify-between items-center pr-2">
+        <div className="flex flex-1">
+            {tabs.map(tab => (
+            <button key={tab.id} onClick={() => setActiveSubTab(tab.id as ChartSubTab)} className={`flex-1 min-w-[70px] py-3 text-[11px] font-black border-b-2 transition-all ${activeSubTab === tab.id ? 'border-stone-950 text-stone-950' : 'border-transparent text-stone-500'} ${tab.id === ChartSubTab.CHAT ? 'text-indigo-600' : ''}`}>
+                {tab.id === ChartSubTab.CHAT ? <span className="flex items-center justify-center gap-1"><Sparkles size={12}/> {tab.label}</span> : tab.label}
+            </button>
+            ))}
+        </div>
+        {/* 🔥 新增：手动保存按钮 */}
+        <button onClick={handleManualSaveWrapper} disabled={isSaving} className={`ml-2 px-3 py-1.5 rounded-full text-[10px] font-bold flex items-center gap-1 transition-all ${isSaving ? 'bg-emerald-100 text-emerald-700' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}>
+            {isSaving ? <Check size={12}/> : <Cloud size={12}/>}
+            {isSaving ? '已同步' : '保存档案'}
+        </button>
       </div>
+
       <div className="flex-1 overflow-y-auto bg-[#f9f9f8] p-4 pb-24" style={activeSubTab === ChartSubTab.CHAT ? { padding: 0 } : {}}>
-         
          {activeSubTab === ChartSubTab.DETAIL && (
              <div className="animate-fade-in"><BaziAnalysisView chart={chart} onShowModal={openDetailedModal} /></div>
          )}
-
          {activeSubTab === ChartSubTab.BASIC && (
             <div className="space-y-4 animate-fade-in">
                 <div className="bg-white border border-stone-300 rounded-2xl overflow-hidden shadow-sm">
@@ -588,21 +590,16 @@ const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowMo
                         <div className="bg-amber-50/50 p-2 rounded-xl border border-amber-200 text-amber-950 font-black text-center text-[11px] tracking-wide">{chart.startLuckText}</div>
                     </div>
                 </div>
-                {/* 升级后的网格 */}
                 <BaziChartGrid chart={chart} onOpenModal={openDetailedModal} />
                 <BalancePanel balance={chart.balance} wuxing={chart.wuxingCounts} dm={chart.dayMaster} />
             </div>
          )}
-         
          {activeSubTab === ChartSubTab.ANALYSIS && (
             <div className="space-y-6 animate-fade-in">
                 <div className="bg-white border border-stone-300 p-5 rounded-2xl shadow-sm">
                     {isVip ? (
                         <div className="mb-4 bg-gradient-to-r from-stone-900 to-stone-700 text-amber-400 p-4 rounded-xl flex items-center justify-between shadow-lg">
-                            <div className="flex items-center gap-2">
-                                <Crown size={20} fill="currentColor" />
-                                <span className="text-xs font-black tracking-wider">VIP 尊享通道已激活</span>
-                            </div>
+                            <div className="flex items-center gap-2"><Crown size={20} fill="currentColor" /><span className="text-xs font-black tracking-wider">VIP 尊享通道已激活</span></div>
                             <span className="text-[10px] bg-white/10 px-2 py-1 rounded text-white">免 Key 无限畅享</span>
                         </div>
                     ) : (
@@ -612,22 +609,15 @@ const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowMo
                             <button onClick={()=>setShowApiKey(!showApiKey)} className="absolute right-3 top-9 text-stone-400">{showApiKey?<EyeOff size={18}/>:<Eye size={18}/>}</button>
                         </div>
                     )}
-                    {/* 🔥 关键修改：应用 Wrapper 函数 */}
                     <button onClick={handleAiAnalysisWrapper} disabled={loadingAi} className={`w-full py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all ${loadingAi ? 'bg-stone-100 text-stone-400' : 'bg-stone-950 text-white active:scale-95 shadow-lg'}`}>
                       {loadingAi ? <Activity className="animate-spin" size={20}/> : <BrainCircuit size={20}/>} {loadingAi ? '正在深度推演...' : '生成大师解盘报告'}
                     </button>
                  </div>
                  {aiReport && (
                      <div className="bg-white border border-stone-300 p-6 rounded-3xl space-y-4 shadow-sm animate-slide-up">
-                         <div className="flex items-center gap-2 text-emerald-600 font-black border-b border-stone-100 pb-3">
-                             <Sparkles size={18}/> <span>本次生成结果</span>
-                         </div>
-                         <div className="bg-stone-50 p-4 rounded-xl text-sm leading-relaxed text-stone-700 max-h-[300px] overflow-y-auto custom-scrollbar">
-                            <SmartTextRenderer content={aiReport.copyText} />
-                         </div>
-                         <button onClick={() => {navigator.clipboard.writeText(aiReport.copyText); alert("报告已复制");}} className="w-full bg-emerald-50 text-emerald-700 py-3 rounded-xl text-xs font-black border border-emerald-100 shadow-sm flex items-center justify-center gap-2">
-                             <ClipboardCopy size={14}/> 复制本次报告内容
-                         </button>
+                         <div className="flex items-center gap-2 text-emerald-600 font-black border-b border-stone-100 pb-3"><Sparkles size={18}/> <span>本次生成结果</span></div>
+                         <div className="bg-stone-50 p-4 rounded-xl text-sm leading-relaxed text-stone-700 max-h-[300px] overflow-y-auto custom-scrollbar"><SmartTextRenderer content={aiReport.copyText} /></div>
+                         <button onClick={() => {navigator.clipboard.writeText(aiReport.copyText); alert("已复制");}} className="w-full bg-emerald-50 text-emerald-700 py-3 rounded-xl text-xs font-black border border-emerald-100 shadow-sm flex items-center justify-center gap-2"><ClipboardCopy size={14}/> 复制内容</button>
                      </div>
                  )}
                  <div className="space-y-3">
@@ -641,10 +631,7 @@ const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowMo
                                          <span className="text-[10px] font-bold px-2 py-0.5 bg-stone-100 text-stone-500 rounded-full">{report.type === 'ziwei' ? '紫微' : '八字'}</span>
                                      </div>
                                      <div className="text-xs text-stone-500 line-clamp-2 mb-3 leading-relaxed bg-stone-50/50 p-2 rounded-lg">{report.content.slice(0, 80)}...</div>
-                                     <div className="flex gap-2">
-                                         <button onClick={() => setSelectedHistoryReport(report)} className="flex-1 py-2 bg-stone-900 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1 group-hover:bg-indigo-600 transition-colors"><Maximize2 size={12}/> 查看完整报告</button>
-                                         <button onClick={() => { navigator.clipboard.writeText(report.content); alert('已复制'); }} className="w-10 flex items-center justify-center border border-stone-200 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-50"><ClipboardCopy size={14}/></button>
-                                     </div>
+                                     <button onClick={() => setSelectedHistoryReport(report)} className="w-full mt-2 py-2 bg-stone-900 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1 group-hover:bg-indigo-600 transition-colors"><Maximize2 size={12}/> 查看完整报告</button>
                                  </div>
                              ))}
                          </div>
@@ -652,15 +639,14 @@ const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowMo
                  </div>
             </div>
          )}
-
-         {activeSubTab === ChartSubTab.CHAT && isVip && (
-             <div className="h-full animate-fade-in"><AiChatView chart={chart} /></div>
-         )}
+         {activeSubTab === ChartSubTab.CHAT && isVip && <div className="h-full animate-fade-in"><AiChatView chart={chart} /></div>}
       </div>
       {selectedHistoryReport && <ReportHistoryModal report={selectedHistoryReport} onClose={() => setSelectedHistoryReport(null)} />}
     </div>
   );
 };
+
+// ... (HomeView, ArchiveView 等组件保持不变，继续保留下面的代码) ...
 
 // --- 6. 首页视图组件 ---
 const HomeView: React.FC<{ onGenerate: (profile: UserProfile) => void; archives: UserProfile[]; }> = ({ onGenerate, archives }) => {
@@ -899,7 +885,7 @@ const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelec
                         <div className="flex justify-between items-start gap-4">
                             <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-1">
-                                    <h3 className="font-black text-stone-900 text-lg">{p.name}</h3>
+                                    <h3 className="font-black text-stone-950 text-lg">{p.name}</h3>
                                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${p.gender==='male'?'bg-indigo-50 text-indigo-700':'bg-rose-50 text-rose-700'}`}>{p.gender==='male'?'乾':'坤'}</span>
                                 </div>
                                 <p className="text-[11px] text-stone-500 font-medium mb-2">{p.birthDate} {p.birthTime} {p.isSolarTime ? '(真太阳)' : ''}</p>
@@ -1001,23 +987,32 @@ const App: React.FC = () => {
     try {
         const newBazi = calculateBazi(profile);
         
-        // 🔥 修正：异步保存逻辑
-        // 如果登录了，保存到 Supabase
-        if (session) {
-            try {
-                // saveArchive 已经是异步的了
-                const updatedArchives = await saveArchive(profile);
-                setArchives(updatedArchives);
-            } catch (e) {
-                console.error("保存失败", e);
-            }
-        }
-        
+        // 🔥 核心修改：极速排盘逻辑 (UI先行，后台保存)
+        // 1. 立即更新 UI (不等待数据库)
         setCurrentProfile(profile);
         setBaziChart(newBazi);
         setCurrentTab(AppTab.CHART);
         setAiReport(null);
+
+        // 2. 后台异步保存 (如果已登录)
+        if (session) {
+            saveArchive(profile)
+              .then(updatedList => setArchives(updatedList))
+              .catch(err => console.error("后台自动保存失败", err));
+        }
     } catch (e) { alert("排盘失败"); }
+  };
+
+  // 🔥 新增：手动保存功能 (给用户安全感)
+  const handleManualSave = async () => {
+      if (!currentProfile || !session) return alert('未登录或无数据');
+      try {
+          const updated = await saveArchive(currentProfile);
+          setArchives(updated);
+          // alert('保存成功'); // 可以选择不弹窗，用按钮状态提示
+      } catch(e) {
+          alert('保存失败，请重试');
+      }
   };
 
   const handleActivateVip = () => {
@@ -1053,7 +1048,17 @@ const App: React.FC = () => {
               return <HomeView onGenerate={handleGenerate} archives={archives} />;
           case AppTab.CHART:
               return baziChart && currentProfile ? (
-                  <BaziChartView profile={currentProfile} chart={baziChart} onShowModal={setModalData} onSaveReport={async (r:string, t:'bazi'|'ziwei')=> { const updated = await saveAiReportToArchive(currentProfile.id, r, t); setArchives(updated); }} onAiAnalysis={handleAiAnalysis} loadingAi={loadingAi} aiReport={aiReport} isVip={isVip} />
+                  <BaziChartView 
+                    profile={currentProfile} 
+                    chart={baziChart} 
+                    onShowModal={setModalData} 
+                    onSaveReport={async (r:string, t:'bazi'|'ziwei')=> { const updated = await saveAiReportToArchive(currentProfile.id, r, t); setArchives(updated); }} 
+                    onAiAnalysis={handleAiAnalysis} 
+                    loadingAi={loadingAi} 
+                    aiReport={aiReport} 
+                    isVip={isVip} 
+                    onManualSave={handleManualSave} // 传递手动保存函数
+                  />
               ) : null;
           case AppTab.ZIWEI:
               // 注意：onSaveReport 也要处理异步
