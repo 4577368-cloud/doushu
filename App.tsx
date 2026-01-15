@@ -158,9 +158,9 @@ const VipActivationModal: React.FC<{ onClose: () => void; onActivate: () => void
     );
 };
 
-// --- AI 聊天界面 ---
+// --- 🔥 AI 聊天界面 (核心修复：分隔符解析建议) ---
 const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
-    // 聊天记录持久化
+    // 1. 初始化时尝试从 localStorage 读取历史记录
     const [messages, setMessages] = useState<ChatMessage[]>(() => {
         const key = `chat_history_${chart.profileId}`;
         const saved = localStorage.getItem(key);
@@ -177,7 +177,7 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
     const [suggestions, setSuggestions] = useState<string[]>(['我的事业运如何？', '最近财运怎么样？', '感情方面有桃花吗？']);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    // 自动保存
+    // 2. 自动保存
     useEffect(() => {
         const key = `chat_history_${chart.profileId}`;
         localStorage.setItem(key, JSON.stringify(messages));
@@ -195,31 +195,53 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
         const userMsg: ChatMessage = { role: 'user', content: msgContent };
         setMessages(prev => [...prev, userMsg]);
         setInput('');
-        setSuggestions([]);
+        setSuggestions([]); // 发送前清空建议
         setLoading(true);
+
+        // 使用本地变量 buffer 来累积完整内容，用于解析 |||
+        let fullResponseBuffer = "";
 
         try {
             const contextMessages = [...messages, userMsg].map(m => ({ role: m.role, content: m.content })).slice(-10);
             
-            // 预先添加一条空的 assistant 消息用于流式接收
+            // 预先添加一条空的 assistant 消息
             setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
             
             await sendChatMessage(contextMessages, chart, (chunk) => {
+                fullResponseBuffer += chunk; // 累积完整内容
+
+                // 🔥 解析逻辑：以 ||| 分割
+                const parts = fullResponseBuffer.split('|||');
+                const displayContent = parts[0]; 
+                const suggestionRaw = parts[1]; // 可能还是 undefined
+
+                // 1. 更新消息气泡（只显示分隔符之前的内容）
                 setMessages(prev => {
                     const newMsgs = [...prev];
                     const lastMsg = newMsgs[newMsgs.length - 1];
                     if (lastMsg.role === 'assistant') {
-                        lastMsg.content += chunk;
+                        lastMsg.content = displayContent;
                     }
                     return newMsgs;
                 });
+
+                // 2. 如果检测到了建议部分，更新建议按钮
+                if (suggestionRaw) {
+                    const newSuggestions = suggestionRaw.split(/[;；]/).map(s => s.trim()).filter(s => s.length > 0);
+                    if (newSuggestions.length > 0) {
+                        setSuggestions(newSuggestions);
+                    }
+                }
             });
 
         } catch (error) {
             setMessages(prev => {
                 const newMsgs = [...prev];
-                if(newMsgs[newMsgs.length-1].content === '') newMsgs.pop();
-                return [...newMsgs, { role: 'assistant', content: '抱歉，连接天机（服务器）时出现波动，请稍后再试。' }];
+                // 如果最后一条消息为空（说明刚开始就挂了），替换为错误提示
+                if(newMsgs[newMsgs.length-1].content === '') {
+                     newMsgs[newMsgs.length-1].content = '抱歉，连接天机（服务器）时出现波动，请稍后再试。';
+                }
+                return newMsgs;
             });
         } finally {
             setLoading(false);
@@ -262,10 +284,17 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
             </div>
             
             <div className="p-3 bg-white border-t border-stone-200 shadow-[0_-4px_20px_rgba(0,0,0,0.02)]">
-                {suggestions.length > 0 && !loading && (
-                    <div className="flex gap-2 overflow-x-auto no-scrollbar mb-3 px-1">
+                {/* 只要有建议就显示 */}
+                {suggestions.length > 0 && (
+                    <div className="flex gap-2 overflow-x-auto no-scrollbar mb-3 px-1 animate-in fade-in slide-in-from-bottom-2">
                         {suggestions.map((s, i) => (
-                            <button key={i} onClick={() => handleSend(s)} className="whitespace-nowrap px-3 py-1.5 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-full border border-indigo-100 hover:bg-indigo-100 transition-colors flex items-center gap-1"><HelpCircle size={10} /> {s}</button>
+                            <button 
+                                key={i} 
+                                onClick={() => handleSend(s)}
+                                className="whitespace-nowrap px-3 py-1.5 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-full border border-indigo-100 hover:bg-indigo-100 transition-colors flex items-center gap-1 active:scale-95"
+                            >
+                                <HelpCircle size={10} /> {s}
+                            </button>
                         ))}
                     </div>
                 )}
@@ -373,6 +402,7 @@ const DetailModal: React.FC<{ data: ModalData; chart: BaziChart | null; onClose:
   );
 };
 
+// --- 五行强弱面板 ---
 const BalancePanel: React.FC<{ balance: BalanceAnalysis; wuxing: Record<string, number>; dm: string }> = ({ balance, wuxing, dm }) => {
   const elements = ['木', '火', '土', '金', '水'];
   return (
@@ -394,6 +424,7 @@ const BalancePanel: React.FC<{ balance: BalanceAnalysis; wuxing: Record<string, 
   );
 };
 
+// --- 八字四柱网格 ---
 const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart, onOpenModal }) => {
   const pillars = [
     { key: 'year', label: '年柱', data: chart.pillars.year },
@@ -404,11 +435,13 @@ const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart
 
   return (
     <div className="bg-white border border-stone-300 rounded-3xl overflow-hidden shadow-sm mb-2">
+      {/* 表头 */}
       <div className="grid grid-cols-5 bg-stone-100 border-b border-stone-300 text-center py-2 text-[10px] font-black text-stone-700 uppercase tracking-wider">
         <div className="bg-stone-100 flex items-center justify-center">四柱</div>
         {pillars.map(p => <div key={p.key}>{p.label}</div>)}
       </div>
 
+      {/* 1. 天干 */}
       <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[64px]">
         <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">天干</div>
         {pillars.map(p => (
@@ -419,6 +452,7 @@ const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart
         ))}
       </div>
 
+      {/* 2. 地支 */}
       <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[50px]">
         <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">地支</div>
         {pillars.map(p => (
@@ -428,6 +462,7 @@ const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart
         ))}
       </div>
 
+      {/* 3. 藏干 */}
       <div className="grid grid-cols-5 border-b border-stone-200 items-stretch">
         <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">藏干</div>
         {pillars.map(p => (
@@ -442,6 +477,7 @@ const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart
         ))}
       </div>
 
+      {/* 4. 星运 */}
       <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[30px]">
         <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">星运</div>
         {pillars.map(p => {
@@ -454,6 +490,7 @@ const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart
         })}
       </div>
 
+      {/* 5. 神煞 */}
       <div className="grid grid-cols-5 border-b border-stone-200 items-stretch min-h-[40px]">
         <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">神煞</div>
         {pillars.map(p => (
@@ -463,6 +500,7 @@ const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart
         ))}
       </div>
 
+      {/* 6. 纳音 */}
       <div className="grid grid-cols-5 items-stretch min-h-[30px]">
         <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">纳音</div>
         {pillars.map(p => (
@@ -475,7 +513,7 @@ const BaziChartGrid: React.FC<{ chart: BaziChart; onOpenModal: any }> = ({ chart
   );
 };
 
-// --- 5. 综合图表视图组件 ---
+// --- 5. 综合图表视图组件 (🔥 关键修改处) ---
 const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowModal: any; onSaveReport: any; onAiAnalysis: any; loadingAi: boolean; aiReport: BaziReport | null; isVip: boolean }> = ({ profile, chart, onShowModal, onSaveReport, onAiAnalysis, loadingAi, aiReport, isVip }) => {
   const [activeSubTab, setActiveSubTab] = useState<ChartSubTab>(ChartSubTab.DETAIL);
   const [apiKey, setApiKey] = useState(() => sessionStorage.getItem('ai_api_key') || '');
@@ -509,9 +547,8 @@ const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowMo
       tabs.push({ id: ChartSubTab.CHAT, label: 'AI 对话' });
   }
 
-  // 🔥 新增：校验逻辑
+  // 🔥 关键修改：校验逻辑，防止非VIP用户在无Key时调用
   const handleAiAnalysisWrapper = () => {
-      // 校验：非VIP且无KEY，禁止调用
       if (!isVip && !apiKey) {
           alert("请先填写 API Key，或开通 VIP 解锁免 Key 特权");
           return;
@@ -571,7 +608,7 @@ const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowMo
                             <button onClick={()=>setShowApiKey(!showApiKey)} className="absolute right-3 top-9 text-stone-400">{showApiKey?<EyeOff size={18}/>:<Eye size={18}/>}</button>
                         </div>
                     )}
-                    {/* 🔥 替换为 handleAiAnalysisWrapper */}
+                    {/* 🔥 关键修改：应用 Wrapper 函数 */}
                     <button onClick={handleAiAnalysisWrapper} disabled={loadingAi} className={`w-full py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all ${loadingAi ? 'bg-stone-100 text-stone-400' : 'bg-stone-950 text-white active:scale-95 shadow-lg'}`}>
                       {loadingAi ? <Activity className="animate-spin" size={20}/> : <BrainCircuit size={20}/>} {loadingAi ? '正在深度推演...' : '生成大师解盘报告'}
                     </button>
