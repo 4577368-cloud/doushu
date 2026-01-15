@@ -836,18 +836,29 @@ const HomeView: React.FC<{ onGenerate: (profile: UserProfile) => void; archives:
 };
 
 // --- 7. 档案视图组件 ---
+// --- 7. 档案视图组件 (修复版：增加保存反馈) ---
 const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelect: any; isVip: boolean; onVipClick: () => void; session: any; onLogout: () => void }> = ({ archives, setArchives, onSelect, isVip, onVipClick, session, onLogout }) => {
     const [editingProfile, setEditingProfile] = useState<UserProfile | null>(null);
     const [viewingReports, setViewingReports] = useState<UserProfile | null>(null);
     const [customTag, setCustomTag] = useState('');
+    const [isSaving, setIsSaving] = useState(false); // 🔥 新增：保存加载状态
 
     const PRESET_TAGS = ['家人', '朋友', '同事', '客户', '自己'];
 
     const handleSaveEdit = async () => {
         if (!editingProfile) return;
-        const updatedList = await updateArchive(editingProfile);
-        setArchives(updatedList);
-        setEditingProfile(null);
+        
+        setIsSaving(true); // 1. 开始转圈
+        try {
+            const updatedList = await updateArchive(editingProfile);
+            setArchives(updatedList);
+            setEditingProfile(null); // 2. 关闭弹窗
+            // alert('修改已保存'); // 可选：如果你觉得关闭弹窗不够明显，可以取消这行注释
+        } catch (error) {
+            alert('保存失败，请重试');
+        } finally {
+            setIsSaving(false); // 3. 停止转圈
+        }
     };
 
     const toggleTag = (tag: string) => {
@@ -868,6 +879,7 @@ const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelec
 
     return (
         <div className="h-full flex flex-col bg-[#f5f5f4] overflow-y-auto pb-24">
+             {/* 登录用户信息栏 */}
              {session && (
                  <div className="bg-white border-b border-stone-200 px-5 py-4 flex items-center justify-between sticky top-0 z-10 shadow-sm">
                      <div className="flex items-center gap-3">
@@ -886,6 +898,7 @@ const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelec
              )}
 
             <div className="p-5 space-y-4">
+                {/* VIP 购买卡片 */}
                 {!isVip && (
                     <div onClick={onVipClick} className="bg-gradient-to-r from-stone-900 to-stone-700 rounded-3xl p-5 shadow-lg relative overflow-hidden cursor-pointer group hover:scale-[1.02] transition-transform">
                         <div className="absolute top-0 right-0 p-4 opacity-10"><Crown size={80} /></div>
@@ -901,6 +914,7 @@ const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelec
                     </div>
                 )}
 
+                {/* 档案列表 */}
                 {archives.length > 0 ? archives.map(p => (
                     <div key={p.id} className="bg-white border border-stone-200 rounded-3xl p-5 shadow-sm space-y-4">
                         <div className="flex justify-between items-start gap-4">
@@ -929,19 +943,44 @@ const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelec
                 )) : <div className="text-center py-20 text-stone-400 font-bold text-sm">暂无云端档案，请先排盘保存</div>}
             </div>
 
+            {/* 编辑弹窗 */}
             {editingProfile && (
                 <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm" onClick={() => setEditingProfile(null)} />
+                    <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm" onClick={() => !isSaving && setEditingProfile(null)} />
                     <div className="relative bg-white w-full max-w-sm rounded-[2rem] shadow-2xl overflow-hidden animate-slide-up">
-                        <div className="p-5 border-b border-stone-100 bg-stone-50 flex justify-between items-center"><h3 className="font-black text-stone-900">编辑档案</h3><button onClick={()=>setEditingProfile(null)}><X size={20} className="text-stone-400"/></button></div>
+                        <div className="p-5 border-b border-stone-100 bg-stone-50 flex justify-between items-center">
+                            <h3 className="font-black text-stone-900">编辑档案</h3>
+                            <button onClick={()=> !isSaving && setEditingProfile(null)}><X size={20} className="text-stone-400"/></button>
+                        </div>
                         <div className="p-6 space-y-6">
-                            <div className="space-y-2"><label className="text-xs font-black text-stone-500 uppercase tracking-wider">姓名</label><input type="text" value={editingProfile.name} onChange={e => setEditingProfile({...editingProfile, name: e.target.value})} className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-3 outline-none font-bold text-stone-900 focus:border-stone-400"/></div>
-                            <div className="space-y-3"><label className="text-xs font-black text-stone-500 uppercase tracking-wider flex items-center gap-2"><Tag size={14}/> 标签管理</label><div className="flex flex-wrap gap-2">{PRESET_TAGS.map(tag => (<button key={tag} onClick={() => toggleTag(tag)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${editingProfile.tags?.includes(tag) ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-stone-200 text-stone-500 hover:border-indigo-200'}`}>{tag}</button>))}</div><div className="flex gap-2"><input type="text" value={customTag} onChange={e => setCustomTag(e.target.value)} placeholder="添加自定义标签..." className="flex-1 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-stone-400"/><button onClick={addCustomTag} className="p-2 bg-stone-200 rounded-lg text-stone-600 hover:bg-stone-300"><Plus size={16}/></button></div><div className="flex flex-wrap gap-1.5 pt-2">{editingProfile.tags?.filter(t => !PRESET_TAGS.includes(t)).map(t => (<div key={t} className="flex items-center gap-1 bg-amber-50 text-amber-700 px-2 py-1 rounded text-[10px] font-bold border border-amber-100">#{t}<button onClick={() => toggleTag(t)}><X size={10}/></button></div>))}</div></div>
-                            <button onClick={handleSaveEdit} className="w-full py-3 bg-stone-900 text-white rounded-xl font-bold shadow-lg mt-2 active:scale-95 transition-transform">保存修改</button>
+                            <div className="space-y-2">
+                                <label className="text-xs font-black text-stone-500 uppercase tracking-wider">姓名</label>
+                                <input type="text" value={editingProfile.name} onChange={e => setEditingProfile({...editingProfile, name: e.target.value})} className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-3 outline-none font-bold text-stone-900 focus:border-stone-400"/>
+                            </div>
+                            <div className="space-y-3">
+                                <label className="text-xs font-black text-stone-500 uppercase tracking-wider flex items-center gap-2"><Tag size={14}/> 标签管理</label>
+                                <div className="flex flex-wrap gap-2">{PRESET_TAGS.map(tag => (<button key={tag} onClick={() => toggleTag(tag)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${editingProfile.tags?.includes(tag) ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-stone-200 text-stone-500 hover:border-indigo-200'}`}>{tag}</button>))}</div>
+                                <div className="flex gap-2">
+                                    <input type="text" value={customTag} onChange={e => setCustomTag(e.target.value)} placeholder="添加自定义标签..." className="flex-1 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-stone-400"/>
+                                    <button onClick={addCustomTag} className="p-2 bg-stone-200 rounded-lg text-stone-600 hover:bg-stone-300"><Plus size={16}/></button>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5 pt-2">{editingProfile.tags?.filter(t => !PRESET_TAGS.includes(t)).map(t => (<div key={t} className="flex items-center gap-1 bg-amber-50 text-amber-700 px-2 py-1 rounded text-[10px] font-bold border border-amber-100">#{t}<button onClick={() => toggleTag(t)}><X size={10}/></button></div>))}</div>
+                            </div>
+                            {/* 🔥 修改了这里的按钮：增加了 loading 状态 */}
+                            <button 
+                                onClick={handleSaveEdit} 
+                                disabled={isSaving}
+                                className={`w-full py-3 rounded-xl font-bold shadow-lg mt-2 active:scale-95 transition-transform flex items-center justify-center gap-2
+                                    ${isSaving ? 'bg-stone-300 text-stone-500 cursor-not-allowed' : 'bg-stone-900 text-white'}`}
+                            >
+                                {isSaving ? <><Activity size={16} className="animate-spin"/> 保存中...</> : '保存修改'}
+                            </button>
                         </div>
                     </div>
                 </div>
             )}
+            
+            {/* 报告查看弹窗 (保持不变) */}
             {viewingReports && (
                 <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-md" onClick={() => setViewingReports(null)} />
