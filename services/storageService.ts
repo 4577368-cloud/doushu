@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { UserProfile } from '../types';
 
-// 🛠️ 辅助：数据库字段 -> 前端字段
+// 数据库 -> 前端
 const mapDbToProfile = (row: any): UserProfile => ({
   id: row.id,
   name: row.name,
@@ -23,28 +23,22 @@ const mapDbToProfile = (row: any): UserProfile => ({
   })) : []
 });
 
-// 🛠️ 辅助：前端字段 -> 数据库字段
-const mapProfileToDb = (profile: UserProfile, userId: string) => {
-  const dbData: any = {
-    user_id: userId,
-    name: profile.name,
-    gender: profile.gender,
-    birth_date: profile.birthDate,
-    birth_time: profile.birthTime,
-    is_solar_time: profile.isSolarTime,
-    province: profile.province,
-    city: profile.city,
-    longitude: profile.longitude,
-    tags: profile.tags,
-    avatar: profile.avatar,
-    updated_at: new Date().toISOString()
-  };
-  return dbData;
-};
+// 前端 -> 数据库
+const mapProfileToDb = (profile: UserProfile, userId: string) => ({
+  user_id: userId,
+  name: profile.name,
+  gender: profile.gender,
+  birth_date: profile.birthDate,
+  birth_time: profile.birthTime,
+  is_solar_time: profile.isSolarTime || false,
+  province: profile.province || '',
+  city: profile.city || '',
+  longitude: profile.longitude || 0,
+  tags: profile.tags || [],
+  avatar: profile.avatar || 'default',
+  updated_at: new Date().toISOString()
+});
 
-/**
- * 获取所有档案
- */
 export const getArchives = async (): Promise<UserProfile[]> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
@@ -55,62 +49,57 @@ export const getArchives = async (): Promise<UserProfile[]> => {
     .order('created_at', { ascending: false });
 
   if (error) {
-    console.error('获取失败:', error);
+    console.error('获取档案失败:', error);
     return [];
   }
   return data?.map(mapDbToProfile) || [];
 };
 
-/**
- * 保存档案 (核心修复)
- */
 export const saveArchive = async (profile: UserProfile): Promise<UserProfile[]> => {
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("请先登录");
+  if (!user) {
+      alert("请先登录再保存");
+      throw new Error("未登录");
+  }
 
   const dbData = mapProfileToDb(profile, user.id);
-
-  // 检查 ID 是否为有效的 UUID (数据库生成的都是 UUID)
+  // 检查是否为有效的 UUID
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(profile.id);
 
   let error;
   if (isUUID) {
-      // 如果是旧档案（UUID），则更新
+      // 旧档案：更新
       const { error: updateErr } = await supabase.from('archives').update(dbData).eq('id', profile.id);
       error = updateErr;
   } else {
-      // 🔥 关键修改：如果是新排盘（时间戳 ID），不要传 ID，让数据库自动生成 UUID
+      // 新档案：插入（不传 id，由数据库生成）
       const { error: insertErr } = await supabase.from('archives').insert(dbData);
       error = insertErr;
   }
 
   if (error) {
-    console.error('保存失败详情:', error);
+    console.error('保存失败:', error);
+    alert(`保存失败！数据库返回错误：\n${error.message}`);
     throw error;
   }
 
   return getArchives();
 };
 
-export const updateArchive = async (profile: UserProfile): Promise<UserProfile[]> => {
-  return saveArchive(profile);
-};
+export const updateArchive = async (profile: UserProfile): Promise<UserProfile[]> => saveArchive(profile);
 
 export const deleteArchive = async (id: string): Promise<UserProfile[]> => {
   await supabase.from('archives').delete().eq('id', id);
   return getArchives();
 };
 
-export const saveAiReportToArchive = async (
-  profileId: string, 
-  reportContent: string, 
-  type: 'bazi' | 'ziwei' = 'bazi'
-): Promise<UserProfile[]> => {
-  await supabase.from('reports').insert({
+export const saveAiReportToArchive = async (profileId: string, reportContent: string, type: 'bazi' | 'ziwei' = 'bazi'): Promise<UserProfile[]> => {
+  const { error } = await supabase.from('reports').insert({
       archive_id: profileId,
       content: reportContent,
       report_type: type,
       created_at: new Date().toISOString()
     });
+  if (error) console.error('报告保存失败:', error);
   return getArchives();
 };

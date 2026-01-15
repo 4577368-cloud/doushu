@@ -541,11 +541,26 @@ const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowMo
   ];
   if (isVip) tabs.push({ id: ChartSubTab.CHAT, label: 'AI 对话' });
 
-  const handleManualSaveWrapper = async () => {
-      setIsSaving(true);
-      await onManualSave();
-      setTimeout(() => setIsSaving(false), 1000);
-  };
+const handleManualSave = async () => {
+    if (!currentProfile || !session) return alert('未登录或无数据');
+    try {
+        const updatedList = await saveArchive(currentProfile);
+        setArchives(updatedList);
+        
+        // 🔥 智能修正：保存成功后，把当前的“临时档案”替换成“正式档案”（带UUID）
+        // 这样你再点保存，就是更新而不是新建了
+        if (updatedList.length > 0) {
+            // 取列表第一个（因为是按时间倒序，最新的肯定在最前）
+            const justSaved = updatedList[0];
+            // 简单校验一下名字是否匹配，防止错乱
+            if (justSaved && justSaved.name === currentProfile.name) {
+                setCurrentProfile(justSaved);
+            }
+        }
+    } catch(e) {
+        // 错误已经在 storageService 里弹窗了，这里不需要操作
+    }
+};
 
   const handleAiAnalysisWrapper = () => {
       if (!isVip && !apiKey) {
