@@ -836,28 +836,25 @@ const HomeView: React.FC<{ onGenerate: (profile: UserProfile) => void; archives:
 };
 
 // --- 7. 档案视图组件 ---
-// --- 7. 档案视图组件 (修复版：增加保存反馈) ---
 const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelect: any; isVip: boolean; onVipClick: () => void; session: any; onLogout: () => void }> = ({ archives, setArchives, onSelect, isVip, onVipClick, session, onLogout }) => {
     const [editingProfile, setEditingProfile] = useState<UserProfile | null>(null);
     const [viewingReports, setViewingReports] = useState<UserProfile | null>(null);
     const [customTag, setCustomTag] = useState('');
-    const [isSaving, setIsSaving] = useState(false); // 🔥 新增：保存加载状态
+    const [isSaving, setIsSaving] = useState(false);
 
     const PRESET_TAGS = ['家人', '朋友', '同事', '客户', '自己'];
 
     const handleSaveEdit = async () => {
         if (!editingProfile) return;
-        
-        setIsSaving(true); // 1. 开始转圈
+        setIsSaving(true);
         try {
             const updatedList = await updateArchive(editingProfile);
             setArchives(updatedList);
-            setEditingProfile(null); // 2. 关闭弹窗
-            // alert('修改已保存'); // 可选：如果你觉得关闭弹窗不够明显，可以取消这行注释
+            setEditingProfile(null);
         } catch (error) {
             alert('保存失败，请重试');
         } finally {
-            setIsSaving(false); // 3. 停止转圈
+            setIsSaving(false);
         }
     };
 
@@ -881,7 +878,8 @@ const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelec
         <div className="h-full flex flex-col bg-[#f5f5f4] overflow-y-auto pb-24">
              {/* 登录用户信息栏 */}
              {session && (
-                 <div className="bg-white border-b border-stone-200 px-5 py-4 flex items-center justify-between sticky top-0 z-10 shadow-sm">
+                 // 🔥 修复点：将 z-10 改为 z-50，确保它永远压在 VIP 卡片上面
+                 <div className="bg-white border-b border-stone-200 px-5 py-4 flex items-center justify-between sticky top-0 z-50 shadow-sm">
                      <div className="flex items-center gap-3">
                          <div className="w-10 h-10 rounded-full bg-stone-900 text-amber-500 flex items-center justify-center font-bold text-lg border-2 border-amber-500 shadow-sm">
                              {session.user.email?.[0].toUpperCase()}
@@ -966,7 +964,6 @@ const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelec
                                 </div>
                                 <div className="flex flex-wrap gap-1.5 pt-2">{editingProfile.tags?.filter(t => !PRESET_TAGS.includes(t)).map(t => (<div key={t} className="flex items-center gap-1 bg-amber-50 text-amber-700 px-2 py-1 rounded text-[10px] font-bold border border-amber-100">#{t}<button onClick={() => toggleTag(t)}><X size={10}/></button></div>))}</div>
                             </div>
-                            {/* 🔥 修改了这里的按钮：增加了 loading 状态 */}
                             <button 
                                 onClick={handleSaveEdit} 
                                 disabled={isSaving}
@@ -980,7 +977,7 @@ const ArchiveView: React.FC<{ archives: UserProfile[]; setArchives: any; onSelec
                 </div>
             )}
             
-            {/* 报告查看弹窗 (保持不变) */}
+            {/* 报告查看弹窗 */}
             {viewingReports && (
                 <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-md" onClick={() => setViewingReports(null)} />
