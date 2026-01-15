@@ -13,10 +13,9 @@ export interface BaziReport {
 
 export const analyzeBaziStructured = async (
   chart: BaziChart,
-  apiKey?: string // 这里的 apiKey 可能是空 (VIP)
+  apiKey?: string
 ): Promise<BaziReport> => {
   
-  // 1. 构建提示词 (Prompt)
   const analysisYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
 
@@ -56,32 +55,31 @@ JSON 结构规范：
   const userPrompt = `请基于以下命盘生成深度财富分析报告：\n${chartDescription}`;
 
   try {
-    // 2. 发送请求给后端代理
-    // 无论有没有 Key，都发给后端。如果没有 Key，后端会尝试用 VIP 环境变量。
+    // 🔥 发送请求给后端代理
     const response = await fetch('/api/analyze', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        apiKey: apiKey || '', // 传给后端，如果是空字符串，后端会处理
+        apiKey: apiKey || '', // 允许为空
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
         model: 'deepseek-chat',
-        response_format: { type: "json_object" } // 强制 JSON
+        response_format: { type: "json_object" }
       })
     });
 
     if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error || `请求失败: ${response.status}`);
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || `请求失败: ${response.status}`);
     }
 
     const data = await response.json();
     
-    // 3. 解析结果
+    // 解析 JSON 结果
     const rawContent = data.choices[0].message.content;
     const parsed = JSON.parse(rawContent);
 
