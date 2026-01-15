@@ -86,7 +86,7 @@ const SmartTextRenderer: React.FC<{ content: string; className?: string }> = ({ 
   );
 };
 
-// --- VIP 专属 Header ---
+// --- VIP 专属 Header (黑金配色) ---
 const AppHeader: React.FC<{ title: string; rightAction?: React.ReactNode; isVip: boolean }> = ({ title, rightAction, isVip }) => (
   <header className={`sticky top-0 z-50 px-5 h-16 flex items-center justify-between transition-all duration-500 ${isVip ? 'bg-[#1c1917] border-b border-amber-900/30 shadow-2xl' : 'bg-white/90 backdrop-blur-md border-b border-stone-200 text-stone-900'}`}>
     <h1 className={`text-lg font-serif font-black tracking-wider flex items-center gap-2.5 ${isVip ? 'text-amber-100' : 'text-stone-900'}`}>
@@ -104,7 +104,7 @@ const AppHeader: React.FC<{ title: string; rightAction?: React.ReactNode; isVip:
   </header>
 );
 
-// --- VIP 激活弹窗 ---
+// --- VIP 激活弹窗 (带价格) ---
 const VipActivationModal: React.FC<{ onClose: () => void; onActivate: () => void }> = ({ onClose, onActivate }) => {
     const [code, setCode] = useState('');
     const [error, setError] = useState('');
@@ -158,7 +158,7 @@ const VipActivationModal: React.FC<{ onClose: () => void; onActivate: () => void
     );
 };
 
-// --- 🔥 AI 聊天界面 (核心修复：分隔符解析建议) ---
+// --- 🔥 AI 聊天界面 (流式响应 + 历史记录缓存 + 颜色修复) ---
 const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
     // 1. 初始化时尝试从 localStorage 读取历史记录
     const [messages, setMessages] = useState<ChatMessage[]>(() => {
@@ -198,24 +198,19 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
         setSuggestions([]); // 发送前清空建议
         setLoading(true);
 
-        // 使用本地变量 buffer 来累积完整内容，用于解析 |||
         let fullResponseBuffer = "";
 
         try {
             const contextMessages = [...messages, userMsg].map(m => ({ role: m.role, content: m.content })).slice(-10);
             
-            // 预先添加一条空的 assistant 消息
             setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
             
             await sendChatMessage(contextMessages, chart, (chunk) => {
-                fullResponseBuffer += chunk; // 累积完整内容
-
-                // 🔥 解析逻辑：以 ||| 分割
+                fullResponseBuffer += chunk;
                 const parts = fullResponseBuffer.split('|||');
                 const displayContent = parts[0]; 
-                const suggestionRaw = parts[1]; // 可能还是 undefined
+                const suggestionRaw = parts[1];
 
-                // 1. 更新消息气泡（只显示分隔符之前的内容）
                 setMessages(prev => {
                     const newMsgs = [...prev];
                     const lastMsg = newMsgs[newMsgs.length - 1];
@@ -225,7 +220,6 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
                     return newMsgs;
                 });
 
-                // 2. 如果检测到了建议部分，更新建议按钮
                 if (suggestionRaw) {
                     const newSuggestions = suggestionRaw.split(/[;；]/).map(s => s.trim()).filter(s => s.length > 0);
                     if (newSuggestions.length > 0) {
@@ -237,7 +231,6 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
         } catch (error) {
             setMessages(prev => {
                 const newMsgs = [...prev];
-                // 如果最后一条消息为空（说明刚开始就挂了），替换为错误提示
                 if(newMsgs[newMsgs.length-1].content === '') {
                      newMsgs[newMsgs.length-1].content = '抱歉，连接天机（服务器）时出现波动，请稍后再试。';
                 }
@@ -284,7 +277,6 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
             </div>
             
             <div className="p-3 bg-white border-t border-stone-200 shadow-[0_-4px_20px_rgba(0,0,0,0.02)]">
-                {/* 只要有建议就显示 */}
                 {suggestions.length > 0 && (
                     <div className="flex gap-2 overflow-x-auto no-scrollbar mb-3 px-1 animate-in fade-in slide-in-from-bottom-2">
                         {suggestions.map((s, i) => (
@@ -307,7 +299,7 @@ const AiChatView: React.FC<{ chart: BaziChart }> = ({ chart }) => {
     );
 };
 
-// --- 复用的组件 (ReportHistoryModal, DetailModal, BalancePanel, BaziChartGrid) ---
+// --- 复用的组件 ---
 const ReportHistoryModal: React.FC<{ report: any; onClose: () => void }> = ({ report, onClose }) => {
     if (!report) return null;
     return (
@@ -698,100 +690,103 @@ const HomeView: React.FC<{ onGenerate: (profile: UserProfile) => void; archives:
   const citiesForProvince = CHINA_LOCATIONS.find(p => p.name === province)?.cities || [];
 
   return (
-    <div className="flex flex-col h-full bg-[#fafaf9] p-6 overflow-y-auto pb-24">
-       <div className="text-center mb-8 mt-2">
-         <div className="w-16 h-16 mx-auto mb-4 p-0.5 border border-stone-200 rounded-2xl shadow-lg bg-white flex items-center justify-center overflow-hidden">
-           <img src="https://imgus.tangbuy.com/static/images/2026-01-10/631ac4d3602b4f508bb0cad516683714-176803435086117897846087613804795.png" className="w-full h-full object-cover" alt="Logo" />
-         </div>
-         <h2 className="text-2xl font-serif font-black text-stone-950 tracking-wider">玄枢命理</h2>
-         <p className="text-[10px] text-stone-400 mt-1 tracking-[0.25em] uppercase font-sans font-bold">Ancient Wisdom · AI Insights</p>
+    // 🔥 修复点：移除了 pb-24，并将内容居中显示
+    <div className="flex flex-col h-full bg-[#fafaf9] overflow-y-auto no-scrollbar">
+       <div className="min-h-full flex flex-col justify-center p-6 pb-10 max-w-md mx-auto w-full">
+           <div className="text-center mb-8 mt-2">
+             <div className="w-16 h-16 mx-auto mb-4 p-0.5 border border-stone-200 rounded-2xl shadow-lg bg-white flex items-center justify-center overflow-hidden">
+               <img src="https://imgus.tangbuy.com/static/images/2026-01-10/631ac4d3602b4f508bb0cad516683714-176803435086117897846087613804795.png" className="w-full h-full object-cover" alt="Logo" />
+             </div>
+             <h2 className="text-2xl font-serif font-black text-stone-950 tracking-wider">玄枢命理</h2>
+             <p className="text-[10px] text-stone-400 mt-1 tracking-[0.25em] uppercase font-sans font-bold">Ancient Wisdom · AI Insights</p>
+           </div>
+           
+           <form onSubmit={e => { e.preventDefault(); if (!parsed) return; onGenerate({ id: Date.now().toString(), name: name || '访客', gender, birthDate: parsed.formattedDate, birthTime: `${hourInput.padStart(2, '0')}:00`, isSolarTime, province, city, longitude, createdAt: Date.now(), avatar: 'default' }); }} className="space-y-6">
+              <div className="flex gap-4">
+                <div className="flex-1 space-y-1.5">
+                  <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">姓名</label>
+                  <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 outline-none font-serif focus:border-stone-400 text-sm shadow-sm transition-all" placeholder="请输入姓名"/>
+                </div>
+                <div className="w-28 space-y-1.5">
+                  <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">乾坤</label>
+                  <div className="flex bg-white border border-stone-200 p-1 rounded-xl shadow-sm h-[46px]">
+                    <button type="button" onClick={() => setGender('male')} className={`flex-1 rounded-lg text-[11px] font-black transition-all ${gender === 'male' ? 'bg-indigo-600 text-white shadow-md' : 'text-stone-400'}`}>乾</button>
+                    <button type="button" onClick={() => setGender('female')} className={`flex-1 rounded-lg text-[11px] font-black transition-all ${gender === 'female' ? 'bg-rose-600 text-white shadow-md' : 'text-stone-400'}`}>坤</button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-5 gap-4">
+                 <div className="col-span-3 space-y-1.5">
+                   <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">生诞 (YYYYMMDD)</label>
+                   <div className="relative">
+                     <input type="text" inputMode="numeric" maxLength={8} value={dateInput} onChange={e => setDateInput(e.target.value.replace(/\D/g, ''))} className="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 outline-none font-sans text-base tracking-widest focus:border-stone-400 shadow-sm" placeholder="19900101" />
+                     <Calendar size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-stone-300" />
+                   </div>
+                 </div>
+                 <div className="col-span-2 space-y-1.5">
+                   <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">时辰</label>
+                   <div className="relative">
+                     <select value={hourInput} onChange={e => setHourInput(e.target.value)} className="w-full bg-white border border-stone-200 rounded-xl px-3 py-3 outline-none font-sans text-base focus:border-stone-400 shadow-sm appearance-none">
+                       {Array.from({length: 24}).map((_, i) => (<option key={i} value={i}>{i.toString().padStart(2, '0')} 时</option>))}
+                     </select>
+                     <Clock size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-300 pointer-events-none" />
+                   </div>
+                 </div>
+              </div>
+
+              <div className={`rounded-2xl border transition-all duration-300 overflow-hidden ${isSolarTime ? 'bg-white border-stone-300 shadow-md' : 'bg-stone-50/50 border-stone-100'}`}>
+                <div className="p-4 flex items-center justify-between cursor-pointer" onClick={() => setIsSolarTime(!isSolarTime)}>
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-xl transition-colors ${isSolarTime ? 'bg-amber-100 text-amber-600' : 'bg-white text-stone-300 border border-stone-200'}`}>
+                      <Sun size={18} />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className={`text-[13px] font-bold ${isSolarTime ? 'text-stone-900' : 'text-stone-400'}`}>真太阳时校准</span>
+                      <span className="text-[9px] text-stone-400 font-bold tracking-tight">根据出生地经度修正出生时间</span>
+                    </div>
+                  </div>
+                  <div className={`w-10 h-5 rounded-full p-0.5 transition-colors relative ${isSolarTime ? 'bg-amber-500' : 'bg-stone-200'}`}>
+                    <div className={`w-4 h-4 bg-white rounded-full transition-all shadow-sm ${isSolarTime ? 'translate-x-5' : 'translate-x-0'}`}></div>
+                  </div>
+                </div>
+                
+                {isSolarTime && (
+                  <div className="px-4 pb-5 pt-1 grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-stone-400 uppercase tracking-widest ml-1">省份</label>
+                      <div className="relative">
+                        <select value={province} onChange={handleProvinceChange} className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 outline-none font-sans text-sm focus:border-amber-400 appearance-none">
+                          {CHINA_LOCATIONS.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
+                        </select>
+                        <MapPin size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-stone-400 uppercase tracking-widest ml-1">城市</label>
+                      <div className="relative">
+                        <select value={city} onChange={handleCityChange} className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 outline-none font-sans text-sm focus:border-amber-400 appearance-none">
+                          {citiesForProvince.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                        </select>
+                        <Map size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3 pt-4">
+                <button type="submit" className="w-full h-14 bg-stone-950 text-white font-black rounded-2xl shadow-xl flex items-center justify-center gap-3 group hover:bg-stone-800 transition-all active:scale-[0.98]">
+                  <Compass size={20} className="group-hover:rotate-180 transition-transform duration-700 text-amber-400" />
+                  <span className="text-base tracking-widest font-serif">开启命运推演</span>
+                </button>
+                <button type="button" onClick={() => setShowHistoryModal(true)} className="w-full h-14 bg-white border-2 border-stone-200 text-stone-700 font-black rounded-2xl flex items-center justify-center gap-2 text-sm hover:border-stone-400 transition-all shadow-sm">
+                  <History size={18} className="text-indigo-600" />
+                  <span>历史命盘</span>
+                </button>
+              </div>
+           </form>
        </div>
-       
-       <form onSubmit={e => { e.preventDefault(); if (!parsed) return; onGenerate({ id: Date.now().toString(), name: name || '访客', gender, birthDate: parsed.formattedDate, birthTime: `${hourInput.padStart(2, '0')}:00`, isSolarTime, province, city, longitude, createdAt: Date.now(), avatar: 'default' }); }} className="space-y-6">
-          <div className="flex gap-4">
-            <div className="flex-1 space-y-1.5">
-              <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">姓名</label>
-              <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 outline-none font-serif focus:border-stone-400 text-sm shadow-sm transition-all" placeholder="请输入姓名"/>
-            </div>
-            <div className="w-28 space-y-1.5">
-              <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">乾坤</label>
-              <div className="flex bg-white border border-stone-200 p-1 rounded-xl shadow-sm h-[46px]">
-                <button type="button" onClick={() => setGender('male')} className={`flex-1 rounded-lg text-[11px] font-black transition-all ${gender === 'male' ? 'bg-indigo-600 text-white shadow-md' : 'text-stone-400'}`}>乾</button>
-                <button type="button" onClick={() => setGender('female')} className={`flex-1 rounded-lg text-[11px] font-black transition-all ${gender === 'female' ? 'bg-rose-600 text-white shadow-md' : 'text-stone-400'}`}>坤</button>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-5 gap-4">
-             <div className="col-span-3 space-y-1.5">
-               <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">生诞 (YYYYMMDD)</label>
-               <div className="relative">
-                 <input type="text" inputMode="numeric" maxLength={8} value={dateInput} onChange={e => setDateInput(e.target.value.replace(/\D/g, ''))} className="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 outline-none font-sans text-base tracking-widest focus:border-stone-400 shadow-sm" placeholder="19900101" />
-                 <Calendar size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-stone-300" />
-               </div>
-             </div>
-             <div className="col-span-2 space-y-1.5">
-               <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">时辰</label>
-               <div className="relative">
-                 <select value={hourInput} onChange={e => setHourInput(e.target.value)} className="w-full bg-white border border-stone-200 rounded-xl px-3 py-3 outline-none font-sans text-base focus:border-stone-400 shadow-sm appearance-none">
-                   {Array.from({length: 24}).map((_, i) => (<option key={i} value={i}>{i.toString().padStart(2, '0')} 时</option>))}
-                 </select>
-                 <Clock size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-300 pointer-events-none" />
-               </div>
-             </div>
-          </div>
-
-          <div className={`rounded-2xl border transition-all duration-300 overflow-hidden ${isSolarTime ? 'bg-white border-stone-300 shadow-md' : 'bg-stone-50/50 border-stone-100'}`}>
-            <div className="p-4 flex items-center justify-between cursor-pointer" onClick={() => setIsSolarTime(!isSolarTime)}>
-              <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-xl transition-colors ${isSolarTime ? 'bg-amber-100 text-amber-600' : 'bg-white text-stone-300 border border-stone-200'}`}>
-                  <Sun size={18} />
-                </div>
-                <div className="flex flex-col">
-                  <span className={`text-[13px] font-bold ${isSolarTime ? 'text-stone-900' : 'text-stone-400'}`}>真太阳时校准</span>
-                  <span className="text-[9px] text-stone-400 font-bold tracking-tight">根据出生地经度修正出生时间</span>
-                </div>
-              </div>
-              <div className={`w-10 h-5 rounded-full p-0.5 transition-colors relative ${isSolarTime ? 'bg-amber-500' : 'bg-stone-200'}`}>
-                <div className={`w-4 h-4 bg-white rounded-full transition-all shadow-sm ${isSolarTime ? 'translate-x-5' : 'translate-x-0'}`}></div>
-              </div>
-            </div>
-            
-            {isSolarTime && (
-              <div className="px-4 pb-5 pt-1 grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                <div className="space-y-1.5">
-                  <label className="text-[9px] font-black text-stone-400 uppercase tracking-widest ml-1">省份</label>
-                  <div className="relative">
-                    <select value={province} onChange={handleProvinceChange} className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 outline-none font-sans text-sm focus:border-amber-400 appearance-none">
-                      {CHINA_LOCATIONS.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-                    </select>
-                    <MapPin size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[9px] font-black text-stone-400 uppercase tracking-widest ml-1">城市</label>
-                  <div className="relative">
-                    <select value={city} onChange={handleCityChange} className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 outline-none font-sans text-sm focus:border-amber-400 appearance-none">
-                      {citiesForProvince.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                    </select>
-                    <Map size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-3 pt-4">
-            <button type="submit" className="w-full h-14 bg-stone-950 text-white font-black rounded-2xl shadow-xl flex items-center justify-center gap-3 group hover:bg-stone-800 transition-all active:scale-[0.98]">
-              <Compass size={20} className="group-hover:rotate-180 transition-transform duration-700 text-amber-400" />
-              <span className="text-base tracking-widest font-serif">开启命运推演</span>
-            </button>
-            <button type="button" onClick={() => setShowHistoryModal(true)} className="w-full h-14 bg-white border-2 border-stone-200 text-stone-700 font-black rounded-2xl flex items-center justify-center gap-2 text-sm hover:border-stone-400 transition-all shadow-sm">
-              <History size={18} className="text-indigo-600" />
-              <span>历史命盘</span>
-            </button>
-          </div>
-       </form>
 
        {showHistoryModal && (
           <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
