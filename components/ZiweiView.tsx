@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { calculateChart } from '../ziwei/services/astrologyService';
 import { generateRuleBasedAnalysis } from '../ziwei/services/interpretationService';
-import { callDeepSeekAPI } from '../ziwei/services/aiService'; // 引用下一步要修改的服务
+import { callDeepSeekAPI } from '../ziwei/services/aiService';
 import { UserProfile } from '../types';
 import { BrainCircuit, Activity, Sparkles, ClipboardCopy, Crown } from 'lucide-react';
-import ZiweiChartView from './ZiweiChartView'; // 确保引入路径正确
+// 🔥 修复：加上花括号 { }，改为命名导入
+import { ZiweiChartView } from './ZiweiChartView'; 
 
 interface ZiweiViewProps {
   profile: UserProfile;
   onSaveReport: (report: string) => void;
-  isVip: boolean; // 接收 VIP 状态
+  isVip: boolean;
 }
 
 const PALACE_NAMES = ['命宫', '兄弟', '夫妻', '子女', '财帛', '疾厄', '迁移', '交友', '官禄', '田宅', '福德', '父母'];
@@ -25,13 +26,13 @@ const ZiweiView: React.FC<ZiweiViewProps> = ({ profile, onSaveReport, isVip }) =
   useEffect(() => {
     const d = profile.birthDate.split('-').map(Number);
     const t = profile.birthTime.split(':').map(Number);
+    // 简单的经度处理，默认 120
     const data = calculateChart(d[0], d[1], d[2], t[0], profile.gender === 'male' ? 'M' : 'F', profile.longitude || 120);
     setChartData(data);
   }, [profile]);
 
   const handleAiAnalyze = async () => {
-    // 🔥 修复点：增加 !isVip 判断
-    // 只有当“既不是VIP”且“没有Key”的时候，才拦截
+    // 🔥 VIP 免 Key 检查逻辑
     if (!apiKey && !isVip) { 
         alert("请先在首页设置 API Key，或升级 VIP 解锁免 Key 特权"); 
         return; 
@@ -44,14 +45,13 @@ const ZiweiView: React.FC<ZiweiViewProps> = ({ profile, onSaveReport, isVip }) =
         const birthYear = parseInt(profile.birthDate.split('-')[0]);
         const age = new Date().getFullYear() - birthYear + 1;
         
-        // 这里的 apiKey 如果是 VIP 可能是空的，没关系，后端会处理
+        // 调用 AI 服务 (后端会自动处理 VIP 免 Key)
         const html = await callDeepSeekAPI(apiKey, chartData, age, profile.gender === 'male' ? 'M' : 'F', new Date().getFullYear());
         
         setDeepSeekContent(html);
         onSaveReport(html);
     } catch (e: any) { 
         console.error(e);
-        // 如果出错，显示具体的错误信息
         setDeepSeekContent(`<p style="color:red">分析失败: ${e.message || "请检查网络"}</p>`); 
     } finally { 
         setIsDeepSeekLoading(false); 
@@ -62,6 +62,7 @@ const ZiweiView: React.FC<ZiweiViewProps> = ({ profile, onSaveReport, isVip }) =
 
   return (
     <div className="h-full flex flex-col bg-[#f5f5f4] overflow-y-auto">
+      {/* 星盘组件 */}
       <ZiweiChartView 
         chartData={chartData}
         profile={profile}
