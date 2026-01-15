@@ -78,7 +78,6 @@ export interface BaziChart {
   mangPai?: string[];
 }
 
-// 🔥 更新：User Profile 增加 tags 字段
 export interface UserProfile {
   id: string;
   name: string;
@@ -91,7 +90,6 @@ export interface UserProfile {
   longitude?: number;
   createdAt: number;
   avatar?: string;
-  // 新增标签字段
   tags?: string[]; 
   aiReports?: { id: string; date: number; content: string; type: 'bazi' | 'ziwei' }[];
 }
@@ -113,7 +111,8 @@ export enum AppTab {
 export enum ChartSubTab {
   BASIC = 'basic',
   DETAIL = 'detail',
-  ANALYSIS = 'analysis'
+  ANALYSIS = 'analysis',
+  CHAT = 'chat'
 }
 
 export interface AnnualFortune {
@@ -137,7 +136,10 @@ export interface BaziReport {
 }
 
 // 占位接口
-export interface HiddenStem {}
+export interface HiddenStem {
+  stem: string;
+  type: '主气' | '中气' | '余气';
+}
 export interface GodStrength {}
 export interface TrendActivation {}
 export interface ShenShaInteraction {}
@@ -151,4 +153,12 @@ export interface PillarInterpretation {
     shenShaEffects: string[];
     roleInDestiny: string;
     integratedSummary: string;
+}
+
+// Ziwei placeholder types to satisfy main App imports if needed
+export interface HistoryItem {
+  id: string;
+  birthData: any;
+  generatedAt: number;
+  content: string;
 }

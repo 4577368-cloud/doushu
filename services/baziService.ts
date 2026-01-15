@@ -1,3 +1,4 @@
+
 import { BaziChart, GanZhi, LuckPillar, Pillar, UserProfile, HiddenStem, GodStrength, TrendActivation, ShenShaInteraction, BalanceAnalysis, AnnualFortune, PatternAnalysis, InterpretationResult, ModalData, XiaoYun, PillarInterpretation } from '../types';
 import { Solar, Lunar } from 'lunar-javascript';
 import { 
@@ -82,7 +83,8 @@ const getShiShenBrief = (ss: string) => {
     return map[ss] || '';
 };
 
-const isSignificantHidden = (h: HiddenStem, revealed: string[]) => h.type === '主气' || revealed.includes(h.stem);
+// Fixed type compatibility for HiddenStem
+const isSignificantHidden = (h: { stem: string; type: string }, revealed: string[]) => h.type === '主气' || revealed.includes(h.stem);
 
 // --- 🔥 关键辅助函数：宫位+十神断语 ---
 const getPositionTenGodReading = (pillar: '年' | '月' | '日' | '时', tenGod: string): string => {
@@ -762,6 +764,7 @@ export const interpretAnnualPillar = (chart: BaziChart, annualGz: GanZhi): Pilla
   return {
     pillarName: '流年',
     coreSymbolism: getGanSymbolism(annualGz.gan),
+    // Fixed: Map and cast to HiddenStem implicitly to satisfy interpretation usage or logic if needed
     hiddenDynamics: `地支藏干：${annualGz.hiddenStems.map(h => h.stem).join('')}`,
     naYinInfluence: getNaYinSymbolism(annualGz.naYin),
     lifeStageEffect: `流年行至${annualGz.lifeStage}地。`,

@@ -1,3 +1,4 @@
+
 // 类型定义
 interface ZiweiPalace {
   name: string;
@@ -10,68 +11,69 @@ interface ZiweiPalace {
   };
 }
 
+// Updated to match actual ChartData structure from types.ts and unify with sanitizeChartData expectations
 interface ZiweiChartData {
-  palaces: ZiweiPalace[];
-  fiveElementClass: string;
-  gender: string;
+  palaces: any[]; // Palace[] from types.ts
+  bureau: { name: string; num: number; type: string };
+  yearGan: string;
+  gender?: string;
   birthYear?: number;
-  birthMonth?: number;
-  birthDay?: number;
-  birthHour?: number;
 }
 
 // ---------------------- 核心清洗与增强逻辑 ----------------------
 
 // 辅助函数：清洗数据并增强
-const sanitizeChartData = (chartData: ZiweiChartData, age: number, currentYear: number) => {
-  if (!chartData || !chartData.palaces) return "无数据";
+const sanitizeChartData = (chartData: any, age: number, currentYear: number) => {
+  if (!chartData || !chartData.palaces) return null;
 
   const lunarYear = currentYear;
-  const liuNianGanZhi = calculateLiuNianGanZhi(chartData.birthYear || 1990, lunarYear);
-  const daXian = calculateDaXian(chartData, age);
-  const liuYue = generateMonthlyAnalysis(lunarYear);
+  // Use currentYear - age as an approximation if birthYear isn't explicit
+  const birthYear = chartData.solar?.getYear() || (currentYear - age + 1);
+  const liuNianGanZhi = calculateLiuNianGanZhi(birthYear, lunarYear);
   
   // 找出关键宫位 (容错处理)
   const keyPalaces = {
-    ming: chartData.palaces.find(p => p.name === '命宫'),
-    caiBo: chartData.palaces.find(p => p.name === '财帛'),
-    guanLu: chartData.palaces.find(p => p.name === '官禄'),
-    fuQi: chartData.palaces.find(p => p.name === '夫妻'),
+    ming: chartData.palaces.find((p: any) => p.name === '命宫'),
+    caiBo: chartData.palaces.find((p: any) => p.name === '财帛'),
+    guanLu: chartData.palaces.find((p: any) => p.name === '官禄'),
+    fuQi: chartData.palaces.find((p: any) => p.name === '夫妻'),
   };
 
-  const simplifiedPalaces = chartData.palaces.map((p: ZiweiPalace) => ({
+  const simplifiedPalaces = chartData.palaces.map((p: any) => ({
     name: p.name,
-    ganZhi: p.ganZhi,
-    majorStars: (p.majorStars || []).map((s: any) => ({
+    ganZhi: `${p.stem}${p.zhi}`,
+    majorStars: (p.stars.major || []).map((s: any) => ({
       name: s.name,
       type: s.type,
-      isGood: s.isGood
+      isGood: ['major', 'lucky'].includes(s.type)
     })),
-    minorStars: (p.minorStars || []).map((s: any) => s.name).join(','),
-    adjectiveStars: (p.adjectiveStars || []).map((s: any) => s.name).join(','),
-    decadal: p.decadal ? `${p.decadal.range[0]}-${p.decadal.range[1]}` : '',
+    minorStars: (p.stars.minor || []).map((s: any) => s.name).join(','),
+    decadal: p.daXian || '',
     // 添加四化星信息
-    siHua: findSiHuaStars(p.majorStars.concat(p.minorStars || []), p.adjectiveStars || [])
+    siHua: (p.siHuaTexts || []).map((s: any) => `${s.star}${s.hua}`).join(',')
   }));
 
   return {
     user: {
-      wuxing: chartData.fiveElementClass,
-      gender: chartData.gender,
+      wuxing: chartData.bureau?.name || '',
+      gender: chartData.gender || 'M',
       age,
       lunarYear: currentYear
     },
     // 流年分析相关
     liuNian: {
       ganZhi: liuNianGanZhi,
-      palace: findLiuNianPalace(chartData.palaces, liuNianGanZhi), // 修正传参
+      palace: findLiuNianPalace(chartData.palaces, liuNianGanZhi),
       stars: analyzeLiuNianStars(keyPalaces.ming, lunarYear)
     },
     // 大限分析
     daXian: {
-      current: daXian.current,
-      palace: daXian.palace,
-      influence: daXian.influence
+      current: `${age}岁`,
+      palace: chartData.palaces.find((p: any) => {
+          const range = p.daXian?.split('-').map(Number);
+          return range && age >= range[0] && age <= range[1];
+      })?.name || '未知',
+      influence: analyzeDaXianInfluence(Math.floor(age/10))
     },
     // 关键宫位深度分析
     keyPalaces: {
@@ -80,42 +82,25 @@ const sanitizeChartData = (chartData: ZiweiChartData, age: number, currentYear: 
       guanLu: analyzePalaceDeeply(keyPalaces.guanLu, '官禄'),
       fuQi: analyzePalaceDeeply(keyPalaces.fuQi, '夫妻')
     },
-    // 流月提示
-    monthlyHighlights: liuYue,
     palaces: simplifiedPalaces
   };
 };
 
 // ---------------------- 辅助计算函数 (补全) ----------------------
 
-// 查找宫位内的四化星 (补全逻辑)
-const findSiHuaStars = (stars: any[], adjectiveStars: any[]) => {
-    const sihua = adjectiveStars.filter(s => ['化禄', '化权', '化科', '化忌'].includes(s.name)).map(s => s.name);
-    return sihua.join(',');
-};
-
 // 查找流年宫位 (根据地支)
-const findLiuNianPalace = (palaces: ZiweiPalace[], liuNianGanZhi: string) => {
-    // 简单的流年地支定位法：流年地支与宫位地支相同
-    const liuNianZhi = liuNianGanZhi.slice(1); 
-    const palace = palaces.find(p => p.ganZhi.includes(liuNianZhi));
+const findLiuNianPalace = (palaces: any[], liuNianGanZhi: string) => {
+    const liuZhi = liuNianGanZhi.slice(1); 
+    const palace = palaces.find(p => p.zhi === liuZhi);
     return palace ? palace.name : "未知";
 };
 
 // 分析流年星曜 (简化版)
-const analyzeLiuNianStars = (mingPalace: ZiweiPalace | undefined, year: number) => {
+const analyzeLiuNianStars = (mingPalace: any | undefined, year: number) => {
     if (!mingPalace) return "平稳";
-    // 简单逻辑：如果有吉星则吉
     const luckyStars = ['天魁','天钺','左辅','右弼','文昌','文曲'];
-    const hasLucky = mingPalace.minorStars?.some(s => luckyStars.includes(s.name));
+    const hasLucky = mingPalace.stars?.minor?.some((s: any) => luckyStars.includes(s.name));
     return hasLucky ? "吉星高照" : "需谨慎";
-};
-
-// 获取大限宫位名称
-const getDaXianPalace = (palaces: ZiweiPalace[], daXianIndex: number) => {
-    // 大限通常是命宫开始，顺时针或逆时针走
-    // 这里做个简化，直接返回 "第N大限"
-    return `大限宫位(${daXianIndex})`;
 };
 
 // 分析大限影响
@@ -168,14 +153,13 @@ const getModernImplication = (starName: string, palaceName: string) => {
 };
 
 // 分析四化影响
-const analyzeSiHuaEffects = (stars: any[]) => {
-    // 实际排盘库里 adjectiveStars 才有四化，这里仅为占位
-    return "四化引动局势变化，需注意化忌所在的冲击。";
+const analyzeSiHuaEffects = (palace: any) => {
+    if (!palace?.siHuaTexts?.length) return "局势平稳。";
+    return palace.siHuaTexts.map((s: any) => `${s.star}化${s.hua}`).join('，') + "引动局势变化。";
 };
 
 // 获取三方四正
 const getRelatedPalaces = (palaceName: string) => {
-    // 简单返回文字描述
     return "受对宫及三合宫位星曜的共同影响。";
 };
 
@@ -191,17 +175,6 @@ const getModernRelevance = (palaceName: string) => {
     return map[palaceName] || "生活领域的影响";
 };
 
-// 流月焦点
-const getMonthlyFocus = (month: number) => {
-    const focuses = ['规划', '执行', '社交', '沉淀', '突破', '调整', '收获', '反思', '变动', '合作', '考核', '总结'];
-    return focuses[month - 1] || '平稳';
-};
-
-// 流月建议
-const getMonthlyAdvice = (month: number) => {
-    return "宜稳中求进，注意捕捉机会。";
-};
-
 // 流年天干地支计算
 const calculateLiuNianGanZhi = (birthYear: number, currentLunarYear: number) => {
   const tiangan = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸'];
@@ -214,40 +187,21 @@ const calculateLiuNianGanZhi = (birthYear: number, currentLunarYear: number) => 
   return tiangan[ganIndex] + dizhi[zhiIndex];
 };
 
-// 大限计算
-const calculateDaXian = (chartData: ZiweiChartData, age: number) => {
-  // 简化版大限计算，实际应更复杂
-  const daXianStarts = [2, 11, 20, 29, 38, 47, 56, 65, 74, 83];
-  let currentDaXian = 0;
-  
-  for (let i = 0; i < daXianStarts.length; i++) {
-    if (age >= daXianStarts[i]) {
-      currentDaXian = i + 1;
-    }
-  }
-  
-  return {
-    current: `${daXianStarts[currentDaXian-1] || 2}岁-${daXianStarts[currentDaXian] || 10}岁`,
-    palace: getDaXianPalace(chartData.palaces, currentDaXian),
-    influence: analyzeDaXianInfluence(currentDaXian)
-  };
-};
-
 // 宫位深度分析
-const analyzePalaceDeeply = (palace: ZiweiPalace | undefined, palaceName: string) => {
+const analyzePalaceDeeply = (palace: any | undefined, palaceName: string) => {
   if (!palace) return null;
   
   const analysis = {
     name: palaceName,
-    ganZhi: palace.ganZhi,
+    ganZhi: `${palace.stem}${palace.zhi}`,
     // 主星分析
-    majorStars: palace.majorStars.map((star: any) => ({
+    majorStars: (palace.stars?.major || []).map((star: any) => ({
       name: star.name,
       interpretation: getStarInterpretation(star.name, palaceName),
       modernImplication: getModernImplication(star.name, palaceName)
     })),
     // 四化影响
-    siHuaEffects: analyzeSiHuaEffects(palace.majorStars),
+    siHuaEffects: analyzeSiHuaEffects(palace),
     // 三方四正宫位的影响
     relatedPalaces: getRelatedPalaces(palaceName),
     // 现代意义
@@ -255,18 +209,6 @@ const analyzePalaceDeeply = (palace: ZiweiPalace | undefined, palaceName: string
   };
   
   return analysis;
-};
-
-// 生成流月分析
-const generateMonthlyAnalysis = (year: number) => {
-  const months = ['正月', '二月', '三月', '四月', '五月', '六月', 
-                  '七月', '八月', '九月', '十月', '冬月', '腊月'];
-  
-  return months.map((month, index) => ({
-    month: `${year}年${month}`,
-    focus: getMonthlyFocus(index + 1),
-    advice: getMonthlyAdvice(index + 1)
-  }));
 };
 
 // ---------------------- 核心 AI 调用函数 ----------------------
@@ -305,7 +247,7 @@ const readStreamResponse = async (response: Response): Promise<string> => {
 
 export const callDeepSeekAPI = async (
   apiKey: string | undefined, 
-  chartData: ZiweiChartData, 
+  chartData: any, 
   age: number, 
   gender: string, 
   currentYear: number
@@ -313,6 +255,10 @@ export const callDeepSeekAPI = async (
   
   // 1. 清洗并增强数据
   const enhancedData = sanitizeChartData(chartData, age, currentYear);
+
+  if (!enhancedData) {
+      throw new Error("排盘数据异常，无法分析");
+  }
 
   const systemPrompt = `你是一位精通紫微斗数（钦天四化与三合流派）的命理大师，尤其擅长将传统命理与现代生活结合分析。
 请根据用户的紫微命盘数据，进行全面的流年运势分析。
@@ -375,7 +321,6 @@ ${JSON.stringify(enhancedData.keyPalaces, null, 2)}
    - 职场人际关系注意事项？
 
 3. **流月重点**：
-   - 逐月运势起伏
    - 重要决策时机
    - 需要避开的月份
 

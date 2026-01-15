@@ -90,7 +90,6 @@ export interface UserProfile {
   longitude?: number;
   createdAt: number;
   avatar?: string;
-  // 🔥 新增：标签字段
   tags?: string[]; 
   aiReports?: { id: string; date: number; content: string; type: 'bazi' | 'ziwei' }[];
 }
@@ -109,12 +108,11 @@ export enum AppTab {
   ARCHIVE = 'archive'
 }
 
-// 🔥 这里是您之前找不到的地方，现在已经加好了
 export enum ChartSubTab {
   BASIC = 'basic',
   DETAIL = 'detail',
   ANALYSIS = 'analysis',
-  CHAT = 'chat' // 🔥 新增：AI 对话
+  CHAT = 'chat'
 }
 
 export interface AnnualFortune {
@@ -137,8 +135,131 @@ export interface BaziReport {
   sections: { id: string; title: string; content: string }[];
 }
 
+// --- Ziwei Module Types ---
+
+export interface Star {
+  name: string;
+  type: string;
+  brightness?: string;
+  hua?: '禄' | '权' | '科' | '忌' | null;
+}
+
+export interface Palace {
+  zhiIndex: number;
+  zhi: string;
+  stem: string;
+  name: string;
+  stars: {
+    major: Star[];
+    minor: Star[];
+  };
+  isMing: boolean;
+  isShen: boolean;
+  smallStars: string[];
+  borrowed: boolean;
+  changSheng: string;
+  boShi: string;
+  suiQian: string;
+  daXian: string;
+  siHuaTexts: {
+    star: string;
+    hua: string;
+    starDesc: string;
+    palaceDesc: string;
+  }[];
+}
+
+export interface Bureau {
+  name: string;
+  num: number;
+  type: 'Gold' | 'Water' | 'Fire' | 'Earth' | 'Wood';
+}
+
+export interface Pattern {
+  id: string;
+  name: string;
+  type: string;
+  level: number;
+  description: string;
+  stars: string[];
+}
+
+export interface ChartData {
+  palaces: Palace[];
+  mingIndex: number;
+  shenIndex: number;
+  bureau: Bureau;
+  solar: any;
+  lunar: any;
+  baZi: string[];
+  gridMapping: (number | null)[];
+  yearGan: string;
+  siHuaDisplay: { type: string; star: string; color: string }[];
+  patterns: Pattern[];
+}
+
+export interface DaXianAnalysisItem {
+  range: string;
+  palace: string;
+  keyFeatures: string[];
+  suggestions: string[];
+}
+
+export interface DaXianResult {
+  currentDaXian: {
+    palace: Palace;
+    range: string;
+    ageRange: { start: number; end: number };
+  } | null;
+  daXianAnalysis: DaXianAnalysisItem[];
+}
+
+export interface AiAnalysisData {
+  palaces: Record<string, { content: string }>;
+  siHua: any[];
+  daXian: any[];
+}
+
+export interface HistoryItem {
+  id: string;
+  birthData: {
+    year: number;
+    month: number;
+    day: number;
+    hour: number;
+    gender: 'M' | 'F';
+    city: string;
+    lng: number;
+  };
+  generatedAt: number;
+  content: string;
+}
+
+export interface SiHuaRule {
+  starNature: string;
+  starDomain: string;
+  huaEffect: string;
+  beforeHua: string;
+  afterHua: string;
+  palaceTheme: string;
+  applicationArea: string;
+  huaNature: string;
+  overallMeaning: string;
+  do: string;
+  dont: string;
+  sensitivePeriod: string;
+}
+
+export interface DaXianStrategy {
+  theme: string;
+  sections: { emoji: string; title: string; content: string }[];
+}
+
 // 占位接口
-export interface HiddenStem {}
+export interface HiddenStem {
+  stem: string;
+  type: '主气' | '中气' | '余气';
+}
 export interface GodStrength {}
 export interface TrendActivation {}
 export interface ShenShaInteraction {}
