@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Sparkles, Info, Crown, Eye, EyeOff, ShieldCheck, Activity, BrainCircuit, History, Maximize2, ClipboardCopy, Check, Cloud } from 'lucide-react';
+import { Sparkles, Crown, Eye, EyeOff, ShieldCheck, Activity, BrainCircuit, History, Maximize2, ClipboardCopy, Check, Cloud } from 'lucide-react';
 import { UserProfile, BaziChart, ChartSubTab, BaziReport as AiBaziReport } from '../types';
 import { getArchives, saveAiReportToArchive } from '../services/storageService';
 import { SmartTextRenderer } from '../components/ui/BaziUI';
-import { BaziChartGrid } from '../components/business/BaziChartGrid';
+// ❌ 删除了 BaziChartGrid 的引用
 import { BalancePanel } from '../components/business/BalancePanel';
 import { CoreInfoCard } from '../components/business/CoreInfoCard';
 import { BaziAnalysisView } from '../components/BaziAnalysisView';
@@ -33,9 +33,9 @@ export const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; o
 
   const openDetailedModal = (title: string, gz: any, name: string, ss: string[]) => onShowModal({ title, pillarName: name, ganZhi: gz, shenSha: ss });
 
+  // 🔥 修改点1：移除了 '八字命盘' (BASIC) 选项
   const tabs = [
       { id: ChartSubTab.DETAIL, label: '流年大运' }, 
-      { id: ChartSubTab.BASIC, label: '八字命盘' }, 
       { id: ChartSubTab.ANALYSIS, label: '大师解盘' }
   ];
   if (isVip) tabs.push({ id: ChartSubTab.CHAT, label: 'AI 对话' });
@@ -59,7 +59,7 @@ export const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; o
             </button>
             ))}
         </div>
-        {/* 🔥 手动保存按钮 */}
+        {/* 手动保存按钮 */}
         <button onClick={onManualSave} disabled={isSaving} className={`ml-2 px-3 py-1.5 rounded-full text-[10px] font-bold flex items-center gap-1 transition-all ${isSaving ? 'bg-emerald-100 text-emerald-700 cursor-not-allowed' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}>
             {isSaving ? <Activity size={12} className="animate-spin"/> : <Cloud size={12}/>}
             {isSaving ? '同步中...' : '保存档案'}
@@ -68,19 +68,17 @@ export const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; o
 
       <div className="flex-1 overflow-y-auto bg-[#f9f9f8] p-4 pb-24" style={activeSubTab === ChartSubTab.CHAT ? { padding: 0 } : {}}>
          
+         {/* 🔥 修改点2：在流年大运下方加入了 BalancePanel (能量均衡) */}
          {activeSubTab === ChartSubTab.DETAIL && (
              <div className="animate-fade-in space-y-4">
                  <CoreInfoCard profile={profile} chart={chart} />
                  <BaziAnalysisView chart={chart} onShowModal={openDetailedModal} />
+                 {/* 这里是你要求的能量均衡板块 */}
+                 <BalancePanel balance={chart.balance} wuxing={chart.wuxingCounts} dm={chart.dayMaster} />
              </div>
          )}
 
-         {activeSubTab === ChartSubTab.BASIC && (
-            <div className="space-y-4 animate-fade-in">
-                <BaziChartGrid chart={chart} onOpenModal={openDetailedModal} />
-                <BalancePanel balance={chart.balance} wuxing={chart.wuxingCounts} dm={chart.dayMaster} />
-            </div>
-         )}
+         {/* 🔥 修改点3：彻底删除了 BASIC (八字命盘) 的代码块 */}
 
          {activeSubTab === ChartSubTab.ANALYSIS && (
             <div className="space-y-6 animate-fade-in">
@@ -97,7 +95,7 @@ export const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; o
                             <button onClick={()=>setShowApiKey(!showApiKey)} className="absolute right-3 top-9 text-stone-400">{showApiKey?<EyeOff size={18}/>:<Eye size={18}/>}</button>
                         </div>
                     )}
-                    <button onClick={handleAiAnalysisWrapper} disabled={loadingAi} className={`w-full py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all ${loadingAi ? 'bg-stone-100 text-stone-400' : 'bg-stone-950 text-white active:scale-95 shadow-lg'}`}>
+                    <button onClick={handleAiAnalysisWrapper} disabled={loadingAi} className={`w-full py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-all ${loadingAi ? 'bg-stone-100 text-stone-400' : 'bg-stone-900 text-white active:scale-95 shadow-lg'}`}>
                       {loadingAi ? <Activity className="animate-spin" size={20}/> : <BrainCircuit size={20}/>} {loadingAi ? '正在深度推演...' : '生成大师解盘报告'}
                     </button>
                  </div>
@@ -127,6 +125,7 @@ export const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; o
                  </div>
             </div>
          )}
+
          {activeSubTab === ChartSubTab.CHAT && isVip && <div className="h-full animate-fade-in"><AiChatView chart={chart} /></div>}
       </div>
       {selectedHistoryReport && <ReportHistoryModal report={selectedHistoryReport} onClose={() => setSelectedHistoryReport(null)} />}

@@ -1,10 +1,33 @@
 // src/components/BaziAnalysisView.tsx
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { BaziChart, GanZhi } from '../types'; // 注意路径可能需要调整为 ../../types
-import { calculateAnnualFortune, interpretAnnualPillar, getGanZhiForYear, getShenShaForDynamicPillar } from '../services/baziService'; // 注意路径
+import { BaziChart, GanZhi } from '../types';
+import { calculateAnnualFortune, interpretAnnualPillar, getGanZhiForYear, getShenShaForDynamicPillar } from '../services/baziService';
 import { Sparkles, CheckCircle, ClipboardCopy } from 'lucide-react';
-import { ElementText } from './ui/BaziUI'; // 引用你的 UI 组件
+import { ElementText } from './ui/BaziUI';
+
+// --- 内部辅助组件 (确保独立运行时不缺件) ---
+
+const ShenShaBadge: React.FC<{ name: string }> = ({ name }) => {
+  const isAuspicious = ['天乙', '太极', '文昌', '福星', '天德', '月德', '禄', '将星', '金舆', '天厨'].some(k => name.includes(k));
+  const isInauspicious = ['劫煞', '灾煞', '孤辰', '寡宿', '羊刃', '元辰', '亡神', '丧门', '吊客', '白虎', '地空', '地劫'].some(k => name.includes(k));
+  const isPeach = ['桃花', '红艳', '咸池'].some(k => name.includes(k));
+  
+  let style = "bg-stone-100 text-stone-600 border-stone-200"; 
+  if (isAuspicious) style = "bg-emerald-50 text-emerald-800 border-emerald-200 font-bold";
+  else if (isInauspicious) style = "bg-rose-50 text-rose-800 border-rose-200 font-bold";
+  else if (isPeach) style = "bg-pink-50 text-pink-800 border-pink-200 font-bold";
+  
+  return <span className={`text-[8px] px-1 py-0.5 rounded border whitespace-nowrap leading-none ${style}`}>{name.length > 2 ? name.slice(0, 2) : name}</span>;
+};
+
+const getLifeStageStyle = (stage: string) => {
+  if (['帝旺', '临官'].includes(stage)) return 'text-rose-600 bg-rose-50 border border-rose-100';
+  if (['长生', '冠带'].includes(stage)) return 'text-amber-600 bg-amber-50 border border-amber-100';
+  if (['胎', '养'].includes(stage)) return 'text-emerald-600 bg-emerald-50 border border-emerald-100';
+  if (['沐浴'].includes(stage)) return 'text-pink-500 bg-pink-50 border border-pink-100';
+  return 'text-stone-400 bg-stone-50 border border-stone-100';
+};
 
 // 定义 props 接口
 interface BaziAnalysisViewProps {
@@ -12,7 +35,7 @@ interface BaziAnalysisViewProps {
   onShowModal: (title: string, gz: any, name: string, ss: string[]) => void;
 }
 
-// Markdown 解析器 (如果你还没有把它移到 UI 库，可以暂时放这里)
+// Markdown 解析器
 const MarkdownParser: React.FC<{ content: string }> = ({ content }) => {
   if (!content) return null;
   const lines = content.split('\n').filter(line => line.trim() !== '');
@@ -36,12 +59,13 @@ const MarkdownParser: React.FC<{ content: string }> = ({ content }) => {
   );
 };
 
-// 六柱网格组件 (仅用于此视图)
+// 🔥 修复版：六柱网格组件 (包含完整信息)
 const FortuneGrid: React.FC<{ chart: BaziChart; year: number; onShowModal: any }> = ({ chart, year, onShowModal }) => {
     const annualGz = getGanZhiForYear(year, chart.dayMaster);
     const luckIdx = chart.luckPillars.findIndex(l => year >= l.startYear && year <= l.endYear);
     const currentLuck = chart.luckPillars[luckIdx !== -1 ? luckIdx : 0] || chart.luckPillars[0];
 
+    // 构造六柱数据
     const pillars = [
         { title: '年柱', gz: chart.pillars.year.ganZhi, ss: chart.pillars.year.shenSha, type: 'static', name: '年柱' },
         { title: '月柱', gz: chart.pillars.month.ganZhi, ss: chart.pillars.month.shenSha, type: 'static', name: '月柱' },
@@ -53,12 +77,15 @@ const FortuneGrid: React.FC<{ chart: BaziChart; year: number; onShowModal: any }
 
     return (
         <div className="bg-white border border-stone-300 rounded-3xl overflow-hidden shadow-sm mb-4">
+            {/* 1. 表头 */}
             <div className="grid grid-cols-7 border-b border-stone-300">
                  <div className="bg-stone-100 text-stone-500 font-black text-[10px] flex items-center justify-center uppercase tracking-wider py-2">六柱</div>
                  {pillars.map((p, i) => (
                      <div key={i} className={`flex items-center justify-center py-2 text-[11px] font-black ${p.highlightClass ? 'text-stone-900 ' + p.highlightClass : 'bg-stone-100 text-stone-600 border-l border-stone-200'}`}>{p.title}</div>
                  ))}
             </div>
+
+            {/* 2. 天干 */}
             <div className="grid grid-cols-7 border-b border-stone-200 items-stretch min-h-[64px]">
                  <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">天干</div>
                  {pillars.map((p, i) => (
@@ -68,6 +95,8 @@ const FortuneGrid: React.FC<{ chart: BaziChart; year: number; onShowModal: any }
                      </div>
                  ))}
             </div>
+
+            {/* 3. 地支 */}
             <div className="grid grid-cols-7 border-b border-stone-200 items-stretch min-h-[50px]">
                  <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">地支</div>
                  {pillars.map((p, i) => (
@@ -75,6 +104,51 @@ const FortuneGrid: React.FC<{ chart: BaziChart; year: number; onShowModal: any }
                          <ElementText text={p.gz.zhi} className="text-2xl font-black font-serif" showFiveElement />
                      </div>
                  ))}
+            </div>
+
+            {/* 4. 🔥 补全：藏干 */}
+            <div className="grid grid-cols-7 border-b border-stone-200 items-stretch">
+                <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">藏干</div>
+                {pillars.map((p, i) => (
+                    <div key={i} className={`flex flex-col items-center justify-center py-2 gap-0.5 ${p.highlightClass || 'border-l border-stone-200'}`}>
+                        {p.gz.hiddenStems.slice(0, 2).map((h: any, idx: number) => (
+                            <div key={idx} className="flex items-center gap-0.5 scale-90">
+                                <span className={`text-[10px] ${h.type==='主气'?'font-black':'text-stone-500'}`}>{h.stem}</span>
+                                <span className="text-[8px] text-stone-400">{h.shiShen}</span>
+                            </div>
+                        ))}
+                    </div>
+                ))}
+            </div>
+
+            {/* 5. 🔥 补全：星运 */}
+            <div className="grid grid-cols-7 border-b border-stone-200 items-stretch min-h-[30px]">
+                <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">星运</div>
+                {pillars.map((p, i) => (
+                    <div key={i} className={`flex items-center justify-center py-1.5 ${p.highlightClass || 'border-l border-stone-200'}`}>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-md leading-none ${getLifeStageStyle(p.gz.lifeStage)}`}>{p.gz.lifeStage}</span>
+                    </div>
+                ))}
+            </div>
+
+            {/* 6. 🔥 补全：神煞 */}
+            <div className="grid grid-cols-7 border-b border-stone-200 items-stretch min-h-[40px]">
+                <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">神煞</div>
+                {pillars.map((p, i) => (
+                    <div key={i} onClick={() => onShowModal(p.title + '详情', p.gz, p.name, p.ss)} className={`flex flex-col items-center justify-start pt-2 px-0.5 gap-1 cursor-pointer hover:bg-black/5 transition-colors ${p.highlightClass || 'border-l border-stone-200'}`}>
+                        {p.ss.slice(0, 2).map((s: string, idx: number) => <ShenShaBadge key={idx} name={s} />)}
+                    </div>
+                ))}
+            </div>
+
+            {/* 7. 🔥 补全：纳音 */}
+            <div className="grid grid-cols-7 items-stretch min-h-[30px]">
+                <div className="bg-stone-50/50 text-stone-400 font-black text-[9px] flex items-center justify-center border-r border-stone-200">纳音</div>
+                {pillars.map((p, i) => (
+                    <div key={i} className={`flex items-center justify-center py-1.5 ${p.highlightClass || 'border-l border-stone-200'}`}>
+                        <span className="text-[10px] text-stone-500 font-medium scale-95 whitespace-nowrap">{p.gz.naYin}</span>
+                    </div>
+                ))}
             </div>
         </div>
     );
@@ -108,6 +182,7 @@ export const BaziAnalysisView: React.FC<BaziAnalysisViewProps> = ({ chart, onSho
 
   return (
     <div className="space-y-4 animate-fade-in pb-10">
+      {/* 渲染完整的六柱网格 */}
       <FortuneGrid chart={chart} year={analysisYear} onShowModal={onShowModal} />
 
       <div className="bg-white p-4 rounded-2xl border border-stone-200 shadow-sm space-y-4">
