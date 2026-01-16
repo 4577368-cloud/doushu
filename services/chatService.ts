@@ -1,5 +1,6 @@
 import { BaziChart, UserProfile } from "../types";
 
+// 定义聊天模式
 export type ChatMode = 'bazi' | 'ziwei';
 
 export interface ChatMessage {
@@ -7,6 +8,10 @@ export interface ChatMessage {
   content: string;
 }
 
+/**
+ * 构造八字系统提示词
+ * 🔥 优化：加入了“禁止动作描写”的指令
+ */
 const getBaziSystemPrompt = (chart: BaziChart): string => {
   return `
 你是一位精通《子平真诠》、《滴天髓》的八字命理大师。
@@ -25,6 +30,10 @@ const getBaziSystemPrompt = (chart: BaziChart): string => {
 `;
 };
 
+/**
+ * 构造紫微系统提示词
+ * 🔥 优化：加入了“禁止动作描写”的指令
+ */
 const getZiweiSystemPrompt = (profile: UserProfile, chartStr: string): string => {
   return `
 你是一位精通“紫微斗数”的命理大师（三合派/飞星派兼修）。
@@ -33,15 +42,17 @@ const getZiweiSystemPrompt = (profile: UserProfile, chartStr: string): string =>
 ${chartStr}
 
 请遵循以下规则：
-1. **必须**使用紫微斗数理论进行分析。
+1. **必须**使用紫微斗数理论（宫位、主星、四化、吉凶星组合）进行分析，不要提及八字术语。
 2. **禁止进行动作描写**：严禁输出任何括号内的动作、神态描写。直接输出分析结论。
-3. 重点分析相关的宫位。
+3. 重点分析相关的宫位（如问财运看财帛宫，问事业看官禄宫）。
 4. 回答结尾必须提供3个相关的追问建议，格式必须严格如下：
 |||问题1;问题2;问题3
 `;
 };
 
-// 🔥 核心函数：必须接收 isVip
+/**
+ * 发送对话请求 (核心服务函数)
+ */
 export const sendChatMessage = async (
   history: ChatMessage[],
   profile: UserProfile,
@@ -49,19 +60,24 @@ export const sendChatMessage = async (
   ziweiChartString: string, 
   mode: ChatMode,
   onStream: (chunk: string) => void,
-  isVip: boolean = false // 🔥 必须有这个默认值
+  isVip: boolean = false // 默认 false，防止未传参时报错
 ) => {
+  // 1. 获取本地 Key
   const apiKey = sessionStorage.getItem('ai_api_key');
   
-  // 🔥 VIP 修复：只有既不是 VIP 又没有 Key 时才拦截
+  // 🔥🔥🔥 核心修复点 🔥🔥🔥
+  // 逻辑翻译：如果你 "既不是 VIP" 并且 "也没填 Key"，我才报错。
+  // 如果 isVip 为 true，这一行会直接跳过，不会报错。
   if (!isVip && !apiKey) {
-    throw new Error("API Key missing - 请在设置中输入 Key，或升级 VIP 免 Key 使用");
+    throw new Error("请升级 VIP 免 Key 使用");
   }
 
+  // 2. 准备系统提示词
   const systemInstruction = mode === 'bazi' 
     ? getBaziSystemPrompt(baziChart)
     : getZiweiSystemPrompt(profile, ziweiChartString);
 
+  // 3. 构造消息列表 (过滤掉历史中的旧 system 消息)
   const cleanHistory = history.filter(msg => msg.role !== 'system');
   
   const messagesForAi = [
@@ -73,11 +89,13 @@ export const sendChatMessage = async (
   ];
 
   try {
+    // 4. 请求后端代理
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        apiKey: apiKey || undefined, // 🔥 VIP 修复：VIP 时传 undefined，后端会自动用环境变量
+        // 🔥 关键：VIP 用户传 undefined，后端会自动去读 Vercel 环境变量
+        apiKey: apiKey || undefined, 
         messages: messagesForAi
       })
     });
@@ -91,6 +109,7 @@ export const sendChatMessage = async (
     const decoder = new TextDecoder('utf-8');
     if (!reader) throw new Error('无法读取响应流');
 
+    // 🔥🔥🔥 核心修复点：Buffer 缓冲区 (解决乱码/JSON问题) 🔥🔥🔥
     let buffer = '';
 
     while (true) {
@@ -101,7 +120,7 @@ export const sendChatMessage = async (
       buffer += chunk;
       
       const lines = buffer.split('\n');
-      buffer = lines.pop() || ''; 
+      buffer = lines.pop() || ''; // 保留最后一行残缺数据
 
       for (const line of lines) {
         const trimmed = line.trim();
@@ -114,7 +133,7 @@ export const sendChatMessage = async (
             const content = json.choices[0]?.delta?.content || '';
             if (content) onStream(content);
           } catch (e) {
-            console.warn("解析跳过:", jsonStr);
+            // 忽略解析失败的帧，等待 Buffer 拼接
           }
         }
       }
