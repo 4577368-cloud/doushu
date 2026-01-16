@@ -9,72 +9,134 @@ export interface ChatMessage {
 }
 
 /**
- * 获取用户称呼
+ * 1. 智能获取用户称呼
  */
 const getUserName = (profile: UserProfile): string => {
-  return (profile.name && profile.name.trim() && profile.name !== '某某') 
-    ? profile.name 
-    : '命主';
+  const rawName = profile.name ? profile.name.trim() : '';
+  if (!rawName || rawName === '访客' || rawName === '某某') {
+    return '命主';
+  }
+  return rawName;
 };
 
 /**
- * 构造八字系统提示词
- * 🔥 优化：注入动态称呼 + 当前时间 + 锁定命盘 + 禁止动作描写
+ * 2. 深度格式化八字排盘数据
+ */
+const formatFullChartDetails = (chart: BaziChart): string => {
+    const p = chart.pillars;
+    
+    const formatPillar = (name: string, pillar: any) => {
+        const gz = pillar.ganZhi;
+        const hiddenInfo = gz.hiddenStems
+            .map((h: any) => `${h.stem}(${h.shiShen})`)
+            .join(' ');
+        const shenshaStr = pillar.shenSha.length > 0 ? pillar.shenSha.join('、') : '无';
+        
+        return `   - **${name}**：${gz.gan}${gz.zhi} 
+     [纳音] ${gz.naYin}  [星运] ${gz.lifeStage} 
+     [十神] 天干:${gz.shiShenGan}  地支藏干:[${hiddenInfo}]
+     [神煞] ${shenshaStr}`;
+    };
+
+    const luckStr = chart.luckPillars.slice(0, 8).map(l => 
+        `${l.ganZhi.gan}${l.ganZhi.zhi}(${l.startAge}岁)`
+    ).join(' → ');
+
+    return `
+【四柱八字深度排盘】
+${formatPillar('年柱', p.year)}
+${formatPillar('月柱', p.month)}
+${formatPillar('日柱', p.day)}
+${formatPillar('时柱', p.hour)}
+
+【大运排盘】
+   - 起运时间：${chart.startLuckText}
+   - 大运顺排：${luckStr}
+
+【核心局势】
+   - 日主：${chart.dayMaster} (五行${chart.dayMasterElement})
+   - 格局：${chart.pattern.name}
+   - 强弱判定：${chart.balance.dayMasterStrength.level} (得分:${chart.balance.dayMasterStrength.score.toFixed(1)})
+   - 喜用神：${chart.balance.yongShen.join('、')}
+   - 忌神：${chart.balance.jiShen.join('、')}
+    `.trim();
+};
+
+/**
+ * 3. 构造八字 System Prompt
+ * 🔥 重点优化：增加 "IGNORE PREVIOUS NAMES" 指令
  */
 const getBaziSystemPrompt = (chart: BaziChart, currentGanZhi: string, profile: UserProfile): string => {
   const userName = getUserName(profile);
+  const chartDetails = formatFullChartDetails(chart);
   
   return `
-你是一位精通《子平真诠》、《滴天髓》的八字命理大师。
+你是一位精通《子平真诠》、《滴天髓》、《三命通会》的八字命理大师。
 
-【关键上下文信息】
-1. **当前对话用户**：${userName} (请在回答中自然地称呼用户为“${userName}”，而不是“用户”或“您”)
-2. **当前实际时间（流年参考）**：${currentGanZhi}
-   (注意：在分析流年/流月运势，或进行时家奇门/八字占卜时，必须以此时间为准)
-3. **当前已排盘信息**（这是${userName}的命盘，**直接基于此盘分析，不要再索要生辰**）：
-   - 日主：${chart.dayMaster} (${chart.dayMasterElement || '未知'})
-   - 格局：${chart.pattern.name}
-   - 五行分布：${JSON.stringify(chart.wuxingCounts)}
-   - 喜用神：${chart.balance.yongShen.join(', ')}
+【SECTION 1: 交互对象 (最高优先级)】
+- 你的客户当前称呼是：**${userName}**。
+- ⚠️ **重要指令**：即使在历史聊天记录中我使用了其他名字（如张三、李四等），请**完全忽略**那些旧称呼。从现在开始，**只称呼我为"${userName}"**。
+- **禁止**称呼对方为"访客"或"用户"。
 
-请遵循以下规则：
-1. 用八字理论（五行生克、十神、刑冲合害）分析${userName}的问题。
-2. 如果${userName}问“以当前时间起盘”或“测当下之事”，请结合【当前已排盘信息】与【当前实际时间】进行时空能量推演。
-3. **禁止进行动作描写**：严禁输出如“（指尖轻点...）”、“（目光深邃...）”之类的括号内容或旁白。请直接以命理师的口吻回答。
-4. 语气专业、温暖、客观。
-5. 回答结尾必须提供3个相关的追问建议，格式必须严格如下：
-|||问题1;问题2;问题3
+【SECTION 2: 命主原始档案 (绝对事实)】
+*当${userName}询问生日或八字时，以此为准*
+- 性别：${profile.gender === 'male' ? '男 (乾造)' : '女 (坤造)'}
+- 公历：${profile.birthDate} ${profile.birthTime}
+- 真太阳时：${profile.isSolarTime ? '已校正' : '未校正'}
+
+【SECTION 3: 命盘全量数据 (分析依据)】
+${chartDetails}
+
+【SECTION 4: 当前时空 (流年参考)】
+- 当前时间(流年)：${currentGanZhi}
+- 说明：如果${userName}问"今年运势"或"测当下"，请以"${currentGanZhi}"中的干支与命盘进行**流年引动分析**。
+
+【回答规则】
+1. **专业深度**：利用提供的藏干、纳音、神煞信息进行细节分析。
+2. **禁止动作描写**：不要输出 "(微笑)" 等旁白。
+3. **强制建议生成**：
+   无论用户说什么，必须在回答结尾提供3个新的追问建议。
+   
+   格式必须严格如下：
+   |||建议1;建议2;建议3
 `;
 };
 
 /**
- * 构造紫微系统提示词
- * 🔥 优化：注入动态称呼 + 当前时间 + 锁定命盘 + 禁止动作描写
+ * 4. 构造紫微 System Prompt
  */
 const getZiweiSystemPrompt = (profile: UserProfile, chartStr: string, currentGanZhi: string): string => {
   const userName = getUserName(profile);
 
   return `
-你是一位精通“紫微斗数”的命理大师（三合派/飞星派兼修）。
+你是一位精通“紫微斗数”的命理大师。
 
-【关键上下文信息】
-1. **当前对话用户**：${userName} (请在回答中自然地称呼用户为“${userName}”)
-2. **当前实际时间（流年参考）**：${currentGanZhi}
-3. **紫微命盘数据**（**已为${userName}排盘，直接分析此盘**）：
+【SECTION 1: 交互对象 (最高优先级)】
+- 你的客户当前称呼是：**${userName}**。
+- ⚠️ **重要指令**：请忽略历史记录中的任何旧名字，**只称呼我为"${userName}"**。
+- 禁止称呼"访客"。
+
+【SECTION 2: 命主档案】
+- 性别：${profile.gender === 'male' ? '男 (乾造)' : '女 (坤造)'}
+- 公历：${profile.birthDate} ${profile.birthTime}
+
+【SECTION 3: 紫微命盘数据】
 ${chartStr}
 
-请遵循以下规则：
-1. **必须**使用紫微斗数理论（宫位、主星、四化、吉凶星组合）进行分析，不要提及八字术语。
-2. 如果${userName}问“测此时运势”，请重点参考流年/流月四化对本命盘的引动。
-3. **禁止进行动作描写**：严禁输出任何括号内的动作、神态描写。直接输出分析结论。
-4. 重点分析相关的宫位（如问财运看财帛宫，问事业看官禄宫）。
-5. 回答结尾必须提供3个相关的追问建议，格式必须严格如下：
-|||问题1;问题2;问题3
+【SECTION 4: 当前时空】
+- 当前时间：${currentGanZhi}
+
+【回答规则】
+1. 必须使用紫微斗数理论分析。
+2. **禁止动作描写**。
+3. **强制建议生成**：
+   回答结尾必须提供3个建议，格式：
+   |||建议1;建议2;建议3
 `;
 };
 
 /**
- * 发送对话请求 (核心服务函数)
+ * 5. 发送对话请求
  */
 export const sendChatMessage = async (
   history: ChatMessage[],
@@ -92,7 +154,6 @@ export const sendChatMessage = async (
     throw new Error("API Key missing - 请在设置中输入 Key，或升级 VIP 免 Key 使用");
   }
 
-  // 🔥 将 profile 传入 Prompt 生成器，以便生成正确的称呼
   const systemInstruction = mode === 'bazi' 
     ? getBaziSystemPrompt(baziChart, currentGanZhi, profile)
     : getZiweiSystemPrompt(profile, ziweiChartString, currentGanZhi);
