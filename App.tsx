@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { RotateCcw } from 'lucide-react';
+// 🔥 引入图标 (确保包含 Activity, Sparkles, Compass)
+import { RotateCcw, MessageCircle, Crown, Activity, Sparkles, Compass } from 'lucide-react';
 
 // --- 1. 引入服务和类型 ---
 import { supabase } from './services/supabase';
@@ -13,18 +14,18 @@ import {
   getArchives, saveArchive, saveAiReportToArchive, getVipStatus, activateVipOnCloud 
 } from './services/storageService';
 
-// --- 2. 引入拆分出去的 UI 和 弹窗组件 ---
+// --- 2. 引入组件 ---
 import { BottomNav } from './components/Layout';
-// 注意：确保你真的创建了这些文件，路径要对
 import { AppHeader } from './components/ui/AppHeader'; 
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { VipActivationModal } from './components/modals/VipActivationModal';
 import { DetailModal } from './components/modals/DetailModal';
 
-// --- 3. 引入拆分出去的 页面视图 ---
+// --- 3. 引入视图 ---
 import { HomeView } from './views/HomeView';
 import { ArchiveView } from './views/ArchiveView';
 import { BaziChartView } from './views/BaziChartView';
+import { AiChatView } from './views/AiChatView';
 import ZiweiView from './components/ZiweiView'; 
 
 const App: React.FC = () => {
@@ -42,10 +43,10 @@ const App: React.FC = () => {
   const [isVip, setIsVip] = useState(false);
   const [showVipModal, setShowVipModal] = useState(false);
   
-  // 全局保存锁（防止重复点击保存）
+  // 全局保存锁
   const [isGlobalSaving, setIsGlobalSaving] = useState(false); 
 
-  // --- 初始化：监听登录 & 加载数据 ---
+  // --- 初始化 ---
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session));
@@ -69,10 +70,9 @@ const App: React.FC = () => {
 
   // --- 核心业务逻辑 ---
 
-  // 1. 排盘处理
+  // 1. 排盘
   const handleGenerate = (profile: UserProfile) => {
     try {
-        // 修正日期格式，防止 YYYYMMDD 导致算法崩溃
         let safeDate = profile.birthDate; 
         if (safeDate.length === 8 && !safeDate.includes('-')) {
             safeDate = `${safeDate.slice(0, 4)}-${safeDate.slice(4, 6)}-${safeDate.slice(6, 8)}`;
@@ -80,19 +80,16 @@ const App: React.FC = () => {
         
         const newBazi = calculateBazi({ ...profile, birthDate: safeDate });
         
-        // 更新 UI
         setCurrentProfile(profile);
         setBaziChart(newBazi);
-        setCurrentTab(AppTab.CHART);
+        setCurrentTab(AppTab.CHART); // 默认跳到八字页
         setAiReport(null);
 
-        // 自动保存 (如果已登录)
         if (session) {
             setIsGlobalSaving(true);
             saveArchive(profile)
               .then(updatedList => {
                   setArchives(updatedList);
-                  // 同步 ID (将前端生成的临时ID替换为数据库的 UUID)
                   if (updatedList.length > 0 && updatedList[0].name === profile.name) {
                       setCurrentProfile(prev => prev ? { ...prev, id: updatedList[0].id } : null);
                   }
@@ -105,7 +102,7 @@ const App: React.FC = () => {
     }
   };
 
-  // 2. 手动保存处理
+  // 2. 手动保存
   const handleManualSave = async () => {
       if (isGlobalSaving) return;
       if (!currentProfile || !session) return alert('未登录或无数据');
@@ -114,15 +111,10 @@ const App: React.FC = () => {
       try {
           const updatedList = await saveArchive(currentProfile);
           setArchives(updatedList);
-          // 再次确保当前查看的 Profile ID 是最新的
           if (updatedList.length > 0 && updatedList[0].name === currentProfile.name) {
               setCurrentProfile(updatedList[0]);
           }
-      } catch(e) { 
-          // 错误已经在 service 层处理弹窗了
-      } finally { 
-          setIsGlobalSaving(false); 
-      }
+      } catch(e) { } finally { setIsGlobalSaving(false); }
   };
 
   // 3. VIP 激活
@@ -146,7 +138,6 @@ const App: React.FC = () => {
       const result = await analyzeBaziStructured(baziChart!, key || undefined);
       setAiReport(result);
       if (currentProfile && session) {
-        // 保存报告
         const updated = await saveAiReportToArchive(currentProfile.id, result.copyText, 'bazi');
         setArchives(updated);
       }
@@ -164,13 +155,24 @@ const App: React.FC = () => {
               return <HomeView onGenerate={handleGenerate} archives={archives} />;
           
           case AppTab.CHART:
-              return baziChart && currentProfile ? (
+              // 🔥 优化：如果没有排盘数据，显示引导页
+              if (!baziChart || !currentProfile) {
+                  return (
+                      <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-[#f5f5f4] space-y-4">
+                          <Activity size={48} className="text-stone-300" />
+                          <p className="text-sm text-stone-500 font-medium">请先在【首页】输入生辰信息进行排盘，<br/>即可查看详细的八字命盘分析。</p>
+                          <button onClick={() => setCurrentTab(AppTab.HOME)} className="px-6 py-3 bg-white border border-stone-200 text-stone-700 rounded-xl font-bold shadow-sm active:scale-95 transition-transform flex items-center gap-2">
+                              <Compass size={16} /> 立即排盘
+                          </button>
+                      </div>
+                  );
+              }
+              return (
                   <ErrorBoundary>
                       <BaziChartView 
                         profile={currentProfile} 
                         chart={baziChart} 
                         onShowModal={setModalData} 
-                        // 处理报告保存 (包括紫微和八字)
                         onSaveReport={async (r:string, t:'bazi'|'ziwei')=> { 
                             const updated = await saveAiReportToArchive(currentProfile.id, r, t); 
                             setArchives(updated); 
@@ -183,10 +185,50 @@ const App: React.FC = () => {
                         isSaving={isGlobalSaving} 
                       />
                   </ErrorBoundary>
-              ) : null;
+              );
           
+          case AppTab.CHAT:
+              // 1. 判断 VIP
+              if (!isVip) {
+                  return (
+                    <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-[#f5f5f4] space-y-4">
+                        <div className="bg-stone-200 p-4 rounded-full"><Crown size={48} className="text-stone-400" /></div>
+                        <h3 className="font-bold text-lg text-stone-700">VIP 尊享功能</h3>
+                        <p className="text-sm text-stone-500">升级 VIP 解锁无限次 AI 深度对话，<br/>探索更多命理奥秘。</p>
+                        <button onClick={() => setShowVipModal(true)} className="px-6 py-3 bg-stone-900 text-amber-400 rounded-xl font-bold shadow-lg active:scale-95 transition-transform">立即解锁</button>
+                    </div>
+                  );
+              }
+              // 2. 判断是否有数据
+              if (!baziChart) {
+                  return (
+                      <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-[#f5f5f4] space-y-4">
+                          <MessageCircle size={48} className="text-stone-300" />
+                          <p className="text-sm text-stone-500 font-medium">请先在【首页】或【档案】中<br/>进行排盘，AI 需要命盘数据才能为您解读。</p>
+                          <button onClick={() => setCurrentTab(AppTab.HOME)} className="px-6 py-3 bg-white border border-stone-200 text-stone-700 rounded-xl font-bold shadow-sm active:scale-95 transition-transform">去排盘</button>
+                      </div>
+                  );
+              }
+              return (
+                  <ErrorBoundary>
+                      <AiChatView chart={baziChart} />
+                  </ErrorBoundary>
+              );
+
           case AppTab.ZIWEI:
-              return currentProfile ? (
+              // 🔥 优化：如果没有排盘数据，显示引导页
+              if (!currentProfile) {
+                  return (
+                      <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-[#f5f5f4] space-y-4">
+                          <Sparkles size={48} className="text-stone-300" />
+                          <p className="text-sm text-stone-500 font-medium">请先在【首页】输入生辰信息进行排盘，<br/>即可查看紫微斗数命盘。</p>
+                          <button onClick={() => setCurrentTab(AppTab.HOME)} className="px-6 py-3 bg-white border border-stone-200 text-stone-700 rounded-xl font-bold shadow-sm active:scale-95 transition-transform flex items-center gap-2">
+                              <Compass size={16} /> 立即排盘
+                          </button>
+                      </div>
+                  );
+              }
+              return (
                   <ZiweiView 
                     profile={currentProfile} 
                     onSaveReport={async (r) => { 
@@ -195,12 +237,12 @@ const App: React.FC = () => {
                     }} 
                     isVip={isVip} 
                   /> 
-              ) : null;
+              );
           
           case AppTab.ARCHIVE:
               if (!session) return (
                   <div className="flex flex-col items-center justify-center h-full p-6 bg-[#f5f5f4]">
-                      <Auth onLoginSuccess={()=>{/* session listener handles this */}} />
+                      <Auth onLoginSuccess={()=>{}} />
                   </div>
               );
               return (
@@ -220,14 +262,11 @@ const App: React.FC = () => {
       }
   };
 
-  // --- 主渲染结构 ---
   return (
     <div className={`flex flex-col h-screen overflow-hidden text-stone-950 font-sans select-none transition-colors duration-700 ${isVip ? 'bg-[#181816]' : 'bg-[#f5f5f4]'}`}>
       
-      {/* 顶部导航 */}
       <AppHeader 
         title={currentTab === AppTab.HOME ? '玄枢命理' : currentProfile?.name || '排盘'} 
-        // 右上角按钮：如果在非首页，显示“重置/返回”按钮
         rightAction={currentTab !== AppTab.HOME && (
             <button onClick={()=>{setCurrentProfile(null);setCurrentTab(AppTab.HOME);setAiReport(null);}} className={`p-2 rounded-full transition-colors ${isVip ? 'hover:bg-white/10 text-stone-300' : 'hover:bg-stone-100 text-stone-700'}`}>
                 <RotateCcw size={18} />
@@ -236,15 +275,12 @@ const App: React.FC = () => {
         isVip={isVip} 
       />
       
-      {/* 主内容区域 */}
       <div className="flex-1 overflow-hidden relative">
         {renderContent()}
       </div>
       
-      {/* 底部导航 */}
       <BottomNav currentTab={currentTab} onTabChange={setCurrentTab} />
       
-      {/* 全局弹窗层 */}
       {modalData && (
           <DetailModal 
             data={modalData} 

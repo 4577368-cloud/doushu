@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Sparkles, Crown, Eye, EyeOff, ShieldCheck, Activity, BrainCircuit, History, Maximize2, ClipboardCopy, Check, Cloud } from 'lucide-react';
+import { Sparkles, Crown, Eye, EyeOff, ShieldCheck, Activity, BrainCircuit, History, Maximize2, ClipboardCopy, Check, Cloud, Info } from 'lucide-react';
 import { UserProfile, BaziChart, ChartSubTab, BaziReport as AiBaziReport } from '../types';
 import { getArchives, saveAiReportToArchive } from '../services/storageService';
 import { SmartTextRenderer } from '../components/ui/BaziUI';
-// ❌ 删除了 BaziChartGrid 的引用
 import { BalancePanel } from '../components/business/BalancePanel';
 import { CoreInfoCard } from '../components/business/CoreInfoCard';
 import { BaziAnalysisView } from '../components/BaziAnalysisView';
-import { AiChatView } from './AiChatView';
+// ❌ 删除了 AiChatView 的引用，因为它现在是独立页面了
 import { ReportHistoryModal } from '../components/modals/ReportHistoryModal';
+import { BaziChartGrid } from '../components/business/BaziChartGrid';
 
 export const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; onShowModal: any; onSaveReport: any; onAiAnalysis: any; loadingAi: boolean; aiReport: AiBaziReport | null; isVip: boolean; onManualSave: () => void; isSaving: boolean }> = ({ profile, chart, onShowModal, onSaveReport, onAiAnalysis, loadingAi, aiReport, isVip, onManualSave, isSaving }) => {
   const [activeSubTab, setActiveSubTab] = useState<ChartSubTab>(ChartSubTab.DETAIL);
@@ -33,12 +33,11 @@ export const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; o
 
   const openDetailedModal = (title: string, gz: any, name: string, ss: string[]) => onShowModal({ title, pillarName: name, ganZhi: gz, shenSha: ss });
 
-  // 🔥 修改点1：移除了 '八字命盘' (BASIC) 选项
+  // 🔥 修改点：移除了 'AI 对话' 选项，现在它在底部导航栏
   const tabs = [
       { id: ChartSubTab.DETAIL, label: '流年大运' }, 
       { id: ChartSubTab.ANALYSIS, label: '大师解盘' }
   ];
-  if (isVip) tabs.push({ id: ChartSubTab.CHAT, label: 'AI 对话' });
 
   const handleAiAnalysisWrapper = () => { 
       if (!isVip && !apiKey) { 
@@ -54,8 +53,8 @@ export const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; o
       <div className="flex border-b border-stone-200 bg-white shadow-sm overflow-x-auto no-scrollbar justify-between items-center pr-2">
         <div className="flex flex-1">
             {tabs.map(tab => (
-            <button key={tab.id} onClick={() => setActiveSubTab(tab.id as ChartSubTab)} className={`flex-1 min-w-[70px] py-3 text-[11px] font-black border-b-2 transition-all ${activeSubTab === tab.id ? 'border-stone-950 text-stone-950' : 'border-transparent text-stone-500'} ${tab.id === ChartSubTab.CHAT ? 'text-indigo-600' : ''}`}>
-                {tab.id === ChartSubTab.CHAT ? <span className="flex items-center justify-center gap-1"><Sparkles size={12}/> {tab.label}</span> : tab.label}
+            <button key={tab.id} onClick={() => setActiveSubTab(tab.id as ChartSubTab)} className={`flex-1 min-w-[70px] py-3 text-[11px] font-black border-b-2 transition-all ${activeSubTab === tab.id ? 'border-stone-950 text-stone-950' : 'border-transparent text-stone-500'}`}>
+                {tab.label}
             </button>
             ))}
         </div>
@@ -66,19 +65,15 @@ export const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; o
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-[#f9f9f8] p-4 pb-24" style={activeSubTab === ChartSubTab.CHAT ? { padding: 0 } : {}}>
+      <div className="flex-1 overflow-y-auto bg-[#f9f9f8] p-4 pb-24">
          
-         {/* 🔥 修改点2：在流年大运下方加入了 BalancePanel (能量均衡) */}
          {activeSubTab === ChartSubTab.DETAIL && (
              <div className="animate-fade-in space-y-4">
                  <CoreInfoCard profile={profile} chart={chart} />
                  <BaziAnalysisView chart={chart} onShowModal={openDetailedModal} />
-                 {/* 这里是你要求的能量均衡板块 */}
                  <BalancePanel balance={chart.balance} wuxing={chart.wuxingCounts} dm={chart.dayMaster} />
              </div>
          )}
-
-         {/* 🔥 修改点3：彻底删除了 BASIC (八字命盘) 的代码块 */}
 
          {activeSubTab === ChartSubTab.ANALYSIS && (
             <div className="space-y-6 animate-fade-in">
@@ -125,8 +120,6 @@ export const BaziChartView: React.FC<{ profile: UserProfile; chart: BaziChart; o
                  </div>
             </div>
          )}
-
-         {activeSubTab === ChartSubTab.CHAT && isVip && <div className="h-full animate-fade-in"><AiChatView chart={chart} /></div>}
       </div>
       {selectedHistoryReport && <ReportHistoryModal report={selectedHistoryReport} onClose={() => setSelectedHistoryReport(null)} />}
     </div>
