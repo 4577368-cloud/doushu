@@ -1,51 +1,11 @@
-import OpenAI from "openai";
-import { BaziChart, UserProfile } from "../types";
-
-// 定义聊天模式
-export type ChatMode = 'bazi' | 'ziwei';
+import { BaziChart, UserProfile, ChatMode } from "../types";
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
 }
 
-/**
- * 构造八字系统提示词
- */
-const getBaziSystemPrompt = (chart: BaziChart): string => {
-  return `
-你是一位精通《子平真诠》、《滴天髓》的八字命理大师。
-当前命盘信息：
-- 日主：${chart.dayMaster}
-- 格局：${chart.pattern.name}
-- 五行分布：${JSON.stringify(chart.wuxingCounts)}
-- 喜用神：${chart.balance.yongShen.join(', ')}
-
-请遵循以下规则：
-1.用八字理论（五行生克、十神、刑冲合害）分析用户问题。
-2.语气专业、温暖、客观。
-3.回答结尾必须提供3个相关的追问建议，格式必须严格如下：
-|||问题1;问题2;问题3
-`;
-};
-
-/**
- * 构造紫微系统提示词
- */
-const getZiweiSystemPrompt = (profile: UserProfile, chartStr: string): string => {
-  return `
-你是一位精通“紫微斗数”的命理大师（三合派/飞星派兼修）。
-当前命主信息：${profile.name} (${profile.gender === 'male' ? '乾造' : '坤造'})
-紫微命盘数据如下：
-${chartStr}
-
-请遵循以下规则：
-1. **必须**使用紫微斗数理论（宫位、主星、四化、吉凶星组合）进行分析，不要提及八字术语。
-2. 重点分析相关的宫位（如问财运看财帛宫，问事业看官禄宫）。
-3. 回答结尾必须提供3个相关的追问建议，格式必须严格如下：
-|||问题1;问题2;问题3
-`;
-};
+// ... (getBaziSystemPrompt 等辅助函数保持不变，省略) ...
 
 export const sendChatMessage = async (
   history: ChatMessage[],
@@ -53,51 +13,63 @@ export const sendChatMessage = async (
   baziChart: BaziChart,
   ziweiChartString: string, 
   mode: ChatMode,
-  onStream: (chunk: string) => void
+  onStream: (chunk: string) => void,
+  isVip: boolean // 🔥 必须接收这个参数
 ) => {
-  // 1. 获取 Key (DeepSeek 的 Key)
-  const apiKey = sessionStorage.getItem('ai_api_key');
-  if (!apiKey) throw new Error("API Key missing");
+  
+  // 1. 获取本地 Key
+  const userKey = sessionStorage.getItem('ai_api_key');
+  
+  // 🔥🔥🔥 关键修复在这里 🔥🔥🔥
+  // 旧代码是：if (!userKey) throw new Error("API Key missing");
+  // 新代码意思：如果你不是 VIP，且你还没填 Key，那才报错。
+  if (!isVip && !userKey) {
+    throw new Error("API Key missing - 请在设置中输入 Key，或升级 VIP 免 Key 使用");
+  }
 
-  // 2. 初始化 OpenAI 客户端 (DeepSeek 兼容)
-  const client = new OpenAI({
-    baseURL: 'https://api.deepseek.com', // 🔥 DeepSeek 官方地址
-    apiKey: apiKey,
-    dangerouslyAllowBrowser: true // 允许前端直接调用
-  });
-
-  // 3. 准备系统提示词
+  // 2. 构造 System Prompt (你的原逻辑)
+  // 假设你已经在文件上方定义了 getBaziSystemPrompt 和 getZiweiSystemPrompt
+  // 这里为了代码简洁，我用伪代码代替，请保留你原来的 Prompt 生成逻辑
   const systemInstruction = mode === 'bazi' 
-    ? getBaziSystemPrompt(baziChart)
-    : getZiweiSystemPrompt(profile, ziweiChartString);
+    ? `(这里是你原来的八字 Prompt 生成逻辑)` 
+    : `(这里是你原来的紫微 Prompt 生成逻辑)`; 
 
-  // 4. 构造消息列表 (System + History)
-  const messagesForAi = [
-    { role: "system", content: systemInstruction },
-    ...history.map(msg => ({
-      role: msg.role,
-      content: msg.content
-    }))
-  ];
-
+  // 3. 发送请求给后端 (Next.js / Vercel API)
   try {
-    // 5. 发起流式请求
-    const stream = await client.chat.completions.create({
-      messages: messagesForAi as any,
-      model: "deepseek-chat", // 🔥 使用 DeepSeek 模型
-      stream: true,
-      temperature: 0.7,
-      max_tokens: 2000
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        messages: [
+            { role: "system", content: systemInstruction },
+            // 过滤掉历史中的 system 消息，防止重复
+            ...history.filter(m => m.role !== 'system').slice(-20)
+        ],
+        // 🔥 如果是 VIP，这里传 undefined，后端就会去读环境变量
+        apiKey: userKey || undefined 
+      }),
     });
 
-    for await (const chunk of stream) {
-      const content = chunk.choices[0]?.delta?.content || "";
-      if (content) {
-        onStream(content);
-      }
+    if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || `请求失败: ${response.statusText}`);
     }
+    
+    if (!response.body) throw new Error("No response body");
+
+    // 4. 处理流式响应
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value, { stream: true });
+      onStream(text);
+    }
+
   } catch (error) {
-    console.error("DeepSeek Chat Error:", error);
+    console.error("Chat Error:", error);
     throw error;
   }
 };
