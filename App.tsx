@@ -1,78 +1,45 @@
+// ... (之前的 imports 保持不变，注意 CheckCircle 等图标)
 import React, { useState, useEffect } from 'react';
 import { RotateCcw, MessageCircle, Crown, Activity, Sparkles, Compass, CheckCircle, Lock, KeyRound } from 'lucide-react';
 
-// --- 1. 引入服务和类型 ---
 import { supabase } from './services/supabase';
 import { Auth } from './Auth';
-import { 
-  AppTab, UserProfile, BaziChart, ModalData, BaziReport as AiBaziReport 
-} from './types';
+import { AppTab, UserProfile, BaziChart, ModalData, BaziReport as AiBaziReport } from './types';
 import { calculateBazi } from './services/baziService';
 import { analyzeBaziStructured } from './services/geminiService';
-import { 
-  getArchives, saveArchive, saveAiReportToArchive, getVipStatus, activateVipOnCloud 
-} from './services/storageService';
+import { getArchives, saveArchive, saveAiReportToArchive, getVipStatus, activateVipOnCloud } from './services/storageService';
 
-// --- 2. 引入组件 ---
 import { BottomNav } from './components/Layout';
 import { AppHeader } from './components/ui/AppHeader'; 
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { VipActivationModal } from './components/modals/VipActivationModal';
 import { DetailModal } from './components/modals/DetailModal';
 
-// --- 3. 引入视图 ---
 import { HomeView } from './views/HomeView';
 import { ArchiveView } from './views/ArchiveView';
 import { BaziChartView } from './views/BaziChartView';
 import { AiChatView } from './views/AiChatView';
 import ZiweiView from './components/ZiweiView'; 
 
-// --- 弹窗组件 ---
+// ... (PasswordResetModal 和 WelcomeModal 保持不变)
 const PasswordResetModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+    // ... 代码略，保持原样
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
-    
     const handleUpdate = async () => {
         setLoading(true);
         const { error } = await supabase.auth.updateUser({ password: password });
         setLoading(false);
         if (error) alert('密码修改失败: ' + error.message);
-        else {
-            alert('密码修改成功！请重新登录。');
-            onClose();
-        }
+        else { alert('密码修改成功！请重新登录。'); onClose(); }
     };
-
     return (
-        <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-stone-900/80 backdrop-blur-sm" onClick={onClose} />
-            <div className="relative bg-white w-full max-w-sm rounded-[2rem] p-6 space-y-4 animate-slide-up">
-                <div className="text-center">
-                    <h3 className="text-lg font-black text-stone-900">设置新密码</h3>
-                    <p className="text-xs text-stone-500">请输入您的新密码以完成重置</p>
-                </div>
-                <div className="relative">
-                    <Lock className="absolute left-4 top-3.5 text-stone-400" size={18} />
-                    <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-stone-50 border border-stone-200 rounded-xl py-3 pl-12 pr-4 outline-none font-bold text-stone-800" placeholder="新密码" />
-                </div>
-                <button onClick={handleUpdate} disabled={loading} className="w-full py-3 bg-stone-900 text-white rounded-xl font-bold shadow-lg flex items-center justify-center gap-2">
-                    {loading ? '提交中...' : '确认修改'}
-                </button>
-            </div>
-        </div>
+        <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4"><div className="absolute inset-0 bg-stone-900/80 backdrop-blur-sm" onClick={onClose} /><div className="relative bg-white w-full max-w-sm rounded-[2rem] p-6 space-y-4 animate-slide-up"><div className="text-center"><h3 className="text-lg font-black text-stone-900">设置新密码</h3><p className="text-xs text-stone-500">请输入您的新密码以完成重置</p></div><div className="relative"><Lock className="absolute left-4 top-3.5 text-stone-400" size={18} /><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-stone-50 border border-stone-200 rounded-xl py-3 pl-12 pr-4 outline-none font-bold text-stone-800" placeholder="新密码" /></div><button onClick={handleUpdate} disabled={loading} className="w-full py-3 bg-stone-900 text-white rounded-xl font-bold shadow-lg flex items-center justify-center gap-2">{loading ? '提交中...' : '确认修改'}</button></div></div>
     );
 };
 
 const WelcomeModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
-    <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 animate-in fade-in duration-300">
-        <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm" onClick={onClose} />
-        <div className="relative bg-white w-full max-w-sm rounded-[2rem] shadow-2xl p-8 text-center space-y-4 animate-slide-up">
-            <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-2"><CheckCircle size={32} /></div>
-            <h3 className="text-xl font-black text-stone-900">恭喜您，注册成功！</h3>
-            <p className="text-sm text-stone-500 leading-relaxed">邮箱验证已通过。<br/>欢迎来到玄枢命理，开启您的探索之旅。</p>
-            <button onClick={onClose} className="w-full py-3 bg-stone-900 text-white rounded-xl font-bold shadow-lg active:scale-95 transition-transform">开始体验</button>
-        </div>
-    </div>
+    <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 animate-in fade-in duration-300"><div className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm" onClick={onClose} /><div className="relative bg-white w-full max-w-sm rounded-[2rem] shadow-2xl p-8 text-center space-y-4 animate-slide-up"><div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-2"><CheckCircle size={32} /></div><h3 className="text-xl font-black text-stone-900">恭喜您，注册成功！</h3><p className="text-sm text-stone-500 leading-relaxed">邮箱验证已通过。<br/>欢迎来到玄枢命理，开启您的探索之旅。</p><button onClick={onClose} className="w-full py-3 bg-stone-900 text-white rounded-xl font-bold shadow-lg active:scale-95 transition-transform">开始体验</button></div></div>
 );
 
 const App: React.FC = () => {
@@ -93,11 +60,7 @@ const App: React.FC = () => {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
         setSession(session);
-        if (session && window.location.hash.includes('access_token')) {
-            // Logic handled in auth state change
-        }
     });
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
         setSession(session);
         if (event === 'SIGNED_IN') {
@@ -174,14 +137,12 @@ const App: React.FC = () => {
     } catch (e) { alert(e instanceof Error ? e.message : '分析出错'); } finally { setLoadingAi(false); }
   };
 
-  // --- 页面路由 ---
   const renderContent = () => {
       switch (currentTab) {
           case AppTab.HOME:
               return <HomeView onGenerate={handleGenerate} archives={archives} />;
           
           case AppTab.CHART:
-              // 🔥 样式更新：黑底金字 (text-amber-400)
               if (!baziChart || !currentProfile) {
                   return (
                       <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-[#f5f5f4] space-y-4">
@@ -201,7 +162,6 @@ const App: React.FC = () => {
               );
           
           case AppTab.CHAT:
-              // VIP 拦截页 (黑底金字)
               if (!isVip) return (
                   <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-[#f5f5f4] space-y-4">
                       <div className="bg-stone-200 p-4 rounded-full"><Crown size={48} className="text-stone-400" /></div>
@@ -210,8 +170,8 @@ const App: React.FC = () => {
                       <button onClick={() => setShowVipModal(true)} className="px-6 py-3 bg-stone-900 text-amber-400 rounded-xl font-bold shadow-lg active:scale-95 transition-transform">立即解锁</button>
                   </div>
               );
-              // 🔥 样式更新：无数据拦截页 (黑底金字)
-              if (!baziChart) return (
+              // 🔥 核心修改：同时检查 baziChart 和 currentProfile
+              if (!baziChart || !currentProfile) return (
                   <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-[#f5f5f4] space-y-4">
                       <div className="bg-stone-200 p-4 rounded-full"><MessageCircle size={48} className="text-stone-300" /></div>
                       <h3 className="font-bold text-lg text-stone-700">数据缺失</h3>
@@ -221,10 +181,10 @@ const App: React.FC = () => {
                       </button>
                   </div>
               );
-              return <ErrorBoundary><AiChatView chart={baziChart} /></ErrorBoundary>;
+              // 🔥 核心修改：传入 profile 以便计算紫微盘
+              return <ErrorBoundary><AiChatView chart={baziChart} profile={currentProfile} /></ErrorBoundary>;
           
           case AppTab.ZIWEI:
-              // 🔥 样式更新：黑底金字 (text-amber-400)
               if (!currentProfile) {
                   return (
                       <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-[#f5f5f4] space-y-4">
