@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { Trash2, Search, User, Clock, ChevronRight, Calendar, Cloud, RefreshCw, LogOut } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Trash2, Search, User, Clock, ChevronRight, Calendar, Cloud, RefreshCw, LogOut, Crown, Check, ToggleLeft, ToggleRight, Fingerprint } from 'lucide-react';
 import { UserProfile } from '../types';
-import { deleteArchive, syncArchivesFromCloud } from '../services/storageService'; // 引入 sync
+import { deleteArchive, syncArchivesFromCloud, setArchiveAsSelf } from '../services/storageService';
 
 interface ArchiveViewProps {
     archives: UserProfile[];
@@ -9,7 +9,7 @@ interface ArchiveViewProps {
     onSelect: (profile: UserProfile) => void;
     isVip: boolean;
     onVipClick: () => void;
-    session: any; // 接收 session 判断是否登录
+    session: any; 
     onLogout: () => void;
 }
 
@@ -23,7 +23,8 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
     onLogout
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
-    const [isSyncing, setIsSyncing] = useState(false); // 同步加载状态
+    // 同步状态: 'idle' | 'loading' | 'success' | 'error'
+    const [syncStatus, setSyncStatus] = useState<'idle'|'loading'|'success'|'error'>('idle');
 
     // 过滤逻辑
     const filtered = archives.filter(p => 
@@ -39,138 +40,192 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
         }
     };
 
-    // 🔥 手动同步功能
+    // 🔥 设为本人
+    const handleSetSelf = async (e: React.MouseEvent, id: string) => {
+        e.stopPropagation(); // 防止触发 onSelect
+        const newList = await setArchiveAsSelf(id);
+        setArchives(newList);
+    };
+
+    // 🔥 手动同步 (带明确反馈)
     const handleSync = async () => {
-        if (!session?.user) {
-            alert("请先登录才能同步云端数据");
-            return;
-        }
-        setIsSyncing(true);
+        if (!session?.user) return alert("请先登录");
+        
+        setSyncStatus('loading');
         try {
-            // 调用 service 层的智能合并同步
             const newList = await syncArchivesFromCloud(session.user.id);
-            setArchives(newList); // 更新界面
-            // 稍微延迟一下 loading 状态，让用户感知到操作
-            setTimeout(() => setIsSyncing(false), 500);
+            setArchives(newList);
+            
+            // 成功反馈
+            setSyncStatus('success');
+            setTimeout(() => setSyncStatus('idle'), 2000); 
         } catch (e) {
-            setIsSyncing(false);
-            alert("同步失败，请检查网络");
+            console.error(e);
+            setSyncStatus('error');
+            alert("同步失败，请检查网络或重新登录");
+            setTimeout(() => setSyncStatus('idle'), 3000);
         }
     };
 
     return (
         <div className="h-full flex flex-col bg-[#f5f5f4]">
             
-            {/* 顶部控制栏 */}
-            <div className="p-4 bg-white shadow-sm z-10 space-y-3">
+            {/* 🔥 顶部黑金用户卡片 (回归) */}
+            <div className="bg-stone-900 p-6 pb-8 rounded-b-[2rem] shadow-xl relative overflow-hidden z-10 shrink-0">
+                {/* 背景装饰 */}
+                <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
                 
-                {/* 标题与操作区 */}
-                <div className="flex justify-between items-center">
-                    <h2 className="text-lg font-black text-stone-800 flex items-center gap-2">
-                        <User className="text-stone-400" size={20}/>
-                        我的档案库
-                        <span className="text-xs bg-stone-100 text-stone-400 px-2 py-0.5 rounded-full font-normal">
-                            {archives.length}
-                        </span>
-                    </h2>
-
-                    {/* 右侧按钮组 */}
-                    <div className="flex gap-2">
-                        {/* 🔥 云端同步按钮 (仅登录显示) */}
-                        {session && (
-                            <button 
-                                onClick={handleSync}
-                                disabled={isSyncing}
-                                className={`
-                                    flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all
-                                    ${isSyncing 
-                                        ? 'bg-stone-100 text-stone-400 border-stone-200' 
-                                        : 'bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100 active:scale-95'}
-                                `}
-                            >
-                                <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
-                                {isSyncing ? '同步中' : '同步云端'}
-                            </button>
-                        )}
-                        
-                        {/* 退出登录 */}
-                        {session && (
-                            <button 
-                                onClick={onLogout}
-                                className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold text-stone-500 border border-stone-200 hover:bg-stone-100 hover:text-stone-700 active:scale-95 transition-all"
-                            >
-                                <LogOut size={12} />
-                                退出
-                            </button>
-                        )}
+                <div className="relative flex justify-between items-start">
+                    <div className="flex items-center gap-4">
+                        <div className="w-14 h-14 rounded-full bg-gradient-to-br from-amber-200 to-amber-500 p-0.5 shadow-lg">
+                            <div className="w-full h-full rounded-full bg-stone-900 flex items-center justify-center">
+                                <User size={24} className="text-amber-400" />
+                            </div>
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <h2 className="text-white font-bold text-lg">
+                                    {session ? (session.user.email?.split('@')[0] || '命理师') : '访客用户'}
+                                </h2>
+                                {isVip && <Crown size={14} className="text-amber-400 fill-amber-400" />}
+                            </div>
+                            <p className="text-stone-400 text-xs mt-1 font-medium">
+                                {session ? '已连接云端数据库' : '本地离线模式'}
+                            </p>
+                        </div>
                     </div>
+
+                    {session ? (
+                        <button onClick={onLogout} className="text-xs text-stone-500 hover:text-stone-300 flex items-center gap-1 bg-white/5 px-3 py-1.5 rounded-full backdrop-blur-sm transition-colors">
+                            <LogOut size={12}/> 退出
+                        </button>
+                    ) : (
+                        <button className="text-xs bg-amber-500 text-stone-900 px-4 py-1.5 rounded-full font-bold shadow-lg active:scale-95">
+                            去登录
+                        </button>
+                    )}
                 </div>
 
-                {/* 搜索框 */}
-                <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={16} />
+                {/* 卡片底部数据栏 */}
+                <div className="mt-6 flex justify-between items-end">
+                    <div className="flex gap-4">
+                        <div className="text-center">
+                            <div className="text-xl font-black text-white">{archives.length}</div>
+                            <div className="text-[10px] text-stone-500 uppercase tracking-wider">档案数</div>
+                        </div>
+                        <div className="w-px h-8 bg-white/10"></div>
+                        <div className="text-center">
+                            <div className="text-xl font-black text-amber-400">{isVip ? 'VIP' : 'Std'}</div>
+                            <div className="text-[10px] text-stone-500 uppercase tracking-wider">权益</div>
+                        </div>
+                    </div>
+
+                    {/* 🔥 同步按钮 (带状态) */}
+                    {session && (
+                        <button 
+                            onClick={handleSync}
+                            disabled={syncStatus === 'loading' || syncStatus === 'success'}
+                            className={`
+                                flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg
+                                ${syncStatus === 'success' 
+                                    ? 'bg-emerald-500 text-white' 
+                                    : syncStatus === 'error'
+                                        ? 'bg-rose-500 text-white'
+                                        : 'bg-white/10 text-stone-300 hover:bg-white/20 hover:text-white'
+                                }
+                            `}
+                        >
+                            {syncStatus === 'loading' && <RefreshCw size={14} className="animate-spin" />}
+                            {syncStatus === 'success' && <Check size={14} />}
+                            {syncStatus === 'error' && <RefreshCw size={14} />}
+                            {syncStatus === 'idle' && <Cloud size={14} />}
+                            
+                            {syncStatus === 'loading' ? '正在同步...' : 
+                             syncStatus === 'success' ? '同步成功' : 
+                             syncStatus === 'error' ? '同步失败' : '同步云端'}
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            {/* 搜索栏 (悬浮在卡片下方) */}
+            <div className="px-4 -mt-5 z-20 relative">
+                <div className="bg-white rounded-2xl shadow-lg p-1 flex items-center">
+                    <Search className="ml-3 text-stone-400" size={18} />
                     <input 
                         type="text" 
-                        placeholder="搜索姓名或生日..." 
+                        placeholder="搜索姓名或日期..." 
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
-                        className="w-full bg-stone-100 text-stone-800 text-sm rounded-xl py-2.5 pl-10 pr-4 outline-none focus:ring-2 focus:ring-stone-200 transition-all placeholder:text-stone-400 font-medium"
+                        className="w-full bg-transparent text-stone-800 text-sm py-3 px-3 outline-none font-medium placeholder:text-stone-300"
                     />
                 </div>
             </div>
 
             {/* 列表内容区 */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-4 pt-4 space-y-3 custom-scrollbar">
                 {filtered.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-48 text-stone-400 space-y-2">
+                    <div className="flex flex-col items-center justify-center h-32 text-stone-400 space-y-2 mt-10">
                         <Search size={32} className="opacity-20" />
-                        <p className="text-xs">未找到相关档案</p>
+                        <p className="text-xs">暂无相关档案</p>
                     </div>
                 ) : (
                     filtered.map(profile => (
                         <div 
                             key={profile.id} 
                             onClick={() => onSelect(profile)}
-                            className="group relative bg-white border border-stone-200 rounded-2xl p-4 shadow-sm active:scale-[0.98] transition-all hover:border-amber-300 hover:shadow-md cursor-pointer overflow-hidden"
+                            className={`
+                                group relative bg-white border rounded-2xl p-4 shadow-sm active:scale-[0.98] transition-all cursor-pointer overflow-hidden
+                                ${profile.isSelf ? 'border-amber-400 ring-1 ring-amber-400 bg-amber-50/10' : 'border-stone-200 hover:border-amber-300 hover:shadow-md'}
+                            `}
                         >
                             {/* 左侧装饰条 */}
                             <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${profile.gender === 'male' ? 'bg-indigo-500' : 'bg-rose-400'}`} />
 
-                            <div className="flex justify-between items-start pl-2">
-                                <div>
-                                    <div className="flex items-center gap-2 mb-1">
+                            <div className="flex justify-between items-start pl-3">
+                                <div className="space-y-1">
+                                    <div className="flex items-center gap-2">
                                         <h3 className="font-black text-stone-800 text-base">{profile.name}</h3>
                                         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${profile.gender === 'male' ? 'bg-indigo-50 text-indigo-600' : 'bg-rose-50 text-rose-500'}`}>
                                             {profile.gender === 'male' ? '乾造' : '坤造'}
                                         </span>
-                                        {/* 云端标识: 如果已登录，默认都视为已同步，或者可以比对 updated_at */}
-                                        {session && <Cloud size={10} className="text-emerald-400" fill="currentColor" />}
+                                        {/* 本人标识 */}
+                                        {profile.isSelf && (
+                                            <span className="flex items-center gap-0.5 text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full border border-amber-200">
+                                                <Fingerprint size={10}/> 本人
+                                            </span>
+                                        )}
                                     </div>
                                     <div className="flex items-center gap-3 text-xs text-stone-500 font-medium">
-                                        <div className="flex items-center gap-1">
-                                            <Calendar size={12} />
-                                            {profile.birthDate}
-                                        </div>
-                                        <div className="flex items-center gap-1">
-                                            <Clock size={12} />
-                                            {profile.birthTime}
-                                        </div>
+                                        <span className="flex items-center gap-1"><Calendar size={12}/> {profile.birthDate}</span>
+                                        <span className="flex items-center gap-1"><Clock size={12}/> {profile.birthTime}</span>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-2">
+
+                                <div className="flex items-center gap-3">
+                                    {/* 🔥 设为本人开关 */}
+                                    <button
+                                        onClick={(e) => handleSetSelf(e, profile.id)}
+                                        className={`transition-colors ${profile.isSelf ? 'text-amber-500' : 'text-stone-300 hover:text-stone-400'}`}
+                                        title={profile.isSelf ? "已设为本人命盘" : "设为本人命盘"}
+                                    >
+                                        {profile.isSelf ? <ToggleRight size={28} fill="currentColor" className="opacity-20"/> : <ToggleLeft size={28} />}
+                                    </button>
+
+                                    <div className="w-px h-4 bg-stone-200"></div>
+
                                     <button 
                                         onClick={(e) => handleDelete(e, profile.id)}
-                                        className="p-2 text-stone-300 hover:text-rose-500 hover:bg-rose-50 rounded-full transition-colors"
+                                        className="p-1.5 text-stone-300 hover:text-rose-500 hover:bg-rose-50 rounded-full transition-colors"
                                     >
                                         <Trash2 size={16} />
                                     </button>
-                                    <ChevronRight size={16} className="text-stone-300 group-hover:text-amber-400 transition-colors" />
                                 </div>
                             </div>
                             
-                            {/* 标签展示 */}
+                            {/* 标签 */}
                             {profile.tags && profile.tags.length > 0 && (
-                                <div className="flex gap-1 mt-3 pl-2 overflow-x-auto no-scrollbar">
+                                <div className="flex gap-1 mt-3 pl-3 overflow-x-auto no-scrollbar">
                                     {profile.tags.map((tag, i) => (
                                         <span key={i} className="whitespace-nowrap text-[10px] bg-stone-100 text-stone-500 px-2 py-0.5 rounded-md font-medium">
                                             #{tag}
