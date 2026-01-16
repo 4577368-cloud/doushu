@@ -7,7 +7,6 @@ import { calculateChart } from '../ziwei/services/astrologyService';
 import { calculateBazi } from '../services/baziService'; 
 import { Solar } from 'lunar-javascript';
 
-// --- 子组件：复制按钮 ---
 const CopyButton: React.FC<{ content: string }> = ({ content }) => {
     const [copied, setCopied] = useState(false);
     const handleCopy = () => {
@@ -27,7 +26,24 @@ const CopyButton: React.FC<{ content: string }> = ({ content }) => {
 
 export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVip: boolean }> = ({ chart, profile, isVip }) => {
     
-    // --- 1. 状态与引用 ---
+    // --- 1. 时间计算 (公历 + 干支) ---
+    const timeContext = useMemo(() => {
+        try {
+            const now = new Date();
+            const solar = Solar.fromDate(now);
+            const lunar = solar.getLunar();
+            const eightChar = lunar.getEightChar();
+            eightChar.setSect(1); // 以立春为界
+            
+            const gregorianStr = `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日`;
+            const ganzhiStr = `${eightChar.getYearGan()}${eightChar.getYearZhi()}年 ${eightChar.getMonthGan()}${eightChar.getMonthZhi()}月 ${eightChar.getDayGan()}${eightChar.getDayZhi()}日`;
+            
+            // 返回组合字符串，让AI同时看到公历和干支，避免幻觉
+            return `公历${gregorianStr} (农历/干支：${ganzhiStr})`;
+        } catch (e) { return "时间获取失败"; }
+    }, []); 
+
+    // --- 2. 状态管理 ---
     const [messages, setMessages] = useState<ChatMessage[]>(() => {
         if (typeof window !== 'undefined') {
             const key = `chat_history_${profile.id}`;
@@ -41,7 +57,7 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
         }
         return [{ 
             role: 'assistant', 
-            content: `尊贵的 VIP 用户，您好！\n我是您的专属命理师。我已经深度研读了您的命盘。\n\n您不仅可以问我八字，还可以点击顶部切换到【紫微斗数】视角。请问您今天想了解哪方面的运势？` 
+            content: `尊贵的 VIP 用户，您好！\n我是您的专属命理师。我已经深度研读了您的命盘。\n\n当前时间：【${timeContext}】\n请问您今天想了解哪方面的运势？` 
         }];
     });
     
@@ -50,23 +66,13 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
     const [suggestions, setSuggestions] = useState<string[]>(['我的事业运如何？', '最近财运怎么样？', '感情方面有桃花吗？']);
     const [mode, setMode] = useState<ChatMode>('bazi'); 
     
-    // 滚动控制相关
+    // 滚动相关
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const chatContainerRef = useRef<HTMLDivElement>(null);
-    const [isUserScrolledUp, setIsUserScrolledUp] = useState(false); // 用户是否向上滑动了
-    const isFirstMount = useRef(true); // 是否是首次加载
-
-    // --- 2. 实时时间计算 ---
-    const currentGanZhi = useMemo(() => {
-        try {
-            const now = new Date();
-            const solar = Solar.fromDate(now);
-            const lunar = solar.getLunar();
-            const eightChar = lunar.getEightChar();
-            eightChar.setSect(1); 
-            return `${eightChar.getYearGan()}${eightChar.getYearZhi()}年 ${eightChar.getMonthGan()}${eightChar.getMonthZhi()}月 ${eightChar.getDayGan()}${eightChar.getDayZhi()}日 ${eightChar.getTimeGan()}${eightChar.getTimeZhi()}时`;
-        } catch (e) { return "时间获取失败"; }
-    }, []); 
+    const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
+    
+    // 🔥 解决痛点2：使用 isReady 控制透明度，实现“无感加载”
+    const [isReady, setIsReady] = useState(false);
 
     // --- 3. 紫微数据辅助 ---
     const generateZiweiString = (p: UserProfile) => {
@@ -92,17 +98,14 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
             return desc; 
         } catch (e) { return "（紫微排盘计算异常）"; }
     };
-    
-    // 预计算用于显示 (发送时会重算)
     const ziweiDataString = useMemo(() => generateZiweiString(profile), [profile]);
 
-    // --- 4. 滚动逻辑优化 (解决痛点 1 & 3) ---
-
-    // 监听滚动事件：判断用户是否向上查看历史
+    // --- 4. 滚动逻辑 (核心修复) ---
+    
+    // 监听用户手动滚动
     const handleScroll = () => {
         if (chatContainerRef.current) {
             const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
-            // 如果距离底部超过 50px，认为用户向上滑动了
             const isUp = scrollHeight - scrollTop - clientHeight > 50;
             setIsUserScrolledUp(isUp);
         }
@@ -114,35 +117,37 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
         localStorage.setItem(key, JSON.stringify(messages));
     }, [messages, profile.id]);
 
-    // 滚动执行逻辑
+    // 🔥 页面初始化：静默定位到底部
     useLayoutEffect(() => {
-        // A. 首次挂载/切换页面归来：瞬间定位到底部 (解决痛点3：无动画)
-        if (isFirstMount.current) {
-            messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
-            isFirstMount.current = false;
-            return;
+        if (chatContainerRef.current) {
+            // 直接修改 scrollTop，不使用 scrollIntoView，避免动画
+            chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+            // 定位完成后，显示内容
+            requestAnimationFrame(() => setIsReady(true));
         }
+    }, []); // 仅在挂载时执行一次
 
-        // B. 消息更新时 (AI生成中)：
-        // 只有当用户没有向上滑动时，才自动滚到底部 (解决痛点1：允许上滑查看)
-        if (!isUserScrolledUp) {
+    // 🔥 消息更新：平滑滚动 (仅当用户没往上滑时)
+    useEffect(() => {
+        if (isReady && !isUserScrolledUp) {
             messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
         }
-    }, [messages, isUserScrolledUp]);
+    }, [messages, isReady, isUserScrolledUp]);
 
 
-    // --- 5. 清空与发送 ---
+    // --- 5. 交互逻辑 ---
     const handleClearHistory = () => {
         if (window.confirm('确定要清空当前对话记录吗？')) {
             const defaultMsg: ChatMessage = { 
                 role: 'assistant', 
-                content: `对话已重置。\n我是您的专属命理师，当前时空【${currentGanZhi}】，请问您现在想了解什么？` 
+                content: `对话已重置。\n我是您的专属命理师，当前时空【${timeContext}】，请问您现在想了解什么？` 
             };
             setMessages([defaultMsg]);
             setSuggestions(['我的事业运如何？', '最近财运怎么样？', '感情方面有桃花吗？']);
             localStorage.removeItem(`chat_history_${profile.id}`);
-            // 重置后强制滚到底部
-            setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+            // 强制复位
+            setIsUserScrolledUp(false);
+            if (chatContainerRef.current) chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
         }
     };
 
@@ -155,22 +160,20 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
         setInput('');
         setSuggestions([]); 
         setLoading(true);
-        // 发送新消息时，强制锁定到底部
-        setIsUserScrolledUp(false);
+        setIsUserScrolledUp(false); // 发送新消息强制回底
 
         try {
             setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
             
             let fullText = ""; 
             
-            // 🔥 解决痛点2：强制根据当前 profile 重算数据
-            // 确保哪怕用户刚刚改了名字，这里传给 AI 的也是最新的
+            // 实时重算数据，确保名字和八字是最新的
             const freshBaziChart = calculateBazi(profile);
             const freshZiweiString = generateZiweiString(profile);
 
             await sendChatMessage(
                 [...messages, userMsg], 
-                profile,         // 传入包含最新 name 的 profile
+                profile,        
                 freshBaziChart,   
                 freshZiweiString, 
                 mode, 
@@ -189,11 +192,10 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
                     }
                 },
                 isVip,
-                currentGanZhi 
+                timeContext // 传入公历+干支
             );
 
         } catch (error: any) {
-            console.error("Chat Error:", error);
             setMessages(prev => {
                 const newMsgs = [...prev];
                 const last = newMsgs[newMsgs.length - 1];
@@ -217,11 +219,11 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
                 <button onClick={handleClearHistory} className="w-8 h-8 flex items-center justify-center text-stone-400 hover:text-rose-500 hover:bg-rose-50 rounded-full transition-colors"><Trash2 size={16} /></button>
             </div>
 
-            {/* 消息列表区 - 增加 onScroll 监听 */}
+            {/* 消息列表区 - 🔥 使用 opacity 控制显隐，解决闪烁问题 */}
             <div 
                 ref={chatContainerRef}
                 onScroll={handleScroll}
-                className="flex-1 overflow-y-auto p-4 space-y-6 pb-6 custom-scrollbar scroll-smooth"
+                className={`flex-1 overflow-y-auto p-4 space-y-6 pb-6 custom-scrollbar scroll-smooth transition-opacity duration-200 ${isReady ? 'opacity-100' : 'opacity-0'}`}
             >
                 {messages.map((msg, idx) => (
                     <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start items-start'}`}>
@@ -247,7 +249,6 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
                 <div ref={messagesEndRef} className="h-2"/>
             </div>
 
-            {/* 底部悬浮提示：如果有新消息但用户在上层，显示“回到底部”按钮 */}
             {isUserScrolledUp && loading && (
                 <button 
                     onClick={() => { setIsUserScrolledUp(false); messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }}

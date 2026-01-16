@@ -26,6 +26,7 @@ import { BaziChartView } from './views/BaziChartView';
 import { AiChatView } from './views/AiChatView';
 import ZiweiView from './components/ZiweiView'; 
 
+// --- 内联组件：密码重置弹窗 ---
 const PasswordResetModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -77,6 +78,7 @@ const PasswordResetModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     );
 };
 
+// --- 内联组件：欢迎弹窗 ---
 const WelcomeModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
     <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 animate-in fade-in duration-300">
         <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm" onClick={onClose} />
@@ -116,22 +118,29 @@ const App: React.FC = () => {
   const [showPasswordResetModal, setShowPasswordResetModal] = useState(false);
   const [isGlobalSaving, setIsGlobalSaving] = useState(false); 
 
+  // --- 初始化数据加载与同步 ---
   useEffect(() => {
+    // A. 无论如何，先加载本地缓存，保证用户立马能看到东西
+    getArchives().then(data => setArchives(data));
+
+    // B. 处理登录同步
     supabase.auth.getSession().then(({ data: { session } }) => {
         setSession(session);
         if (session?.user) {
-            syncArchivesFromCloud(session.user.id).then(data => setArchives(data));
-        } else {
-            getArchives().then(data => setArchives(data));
+            // 登录了，再去拉取云端最新数据
+            syncArchivesFromCloud(session.user.id).then(data => {
+                if (data.length > 0) setArchives(data); 
+            });
         }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
         setSession(session);
-        if (event === 'SIGNED_IN') {
-            if (session?.user) {
-                syncArchivesFromCloud(session.user.id).then(data => setArchives(data));
-            }
+        if (event === 'SIGNED_IN' && session?.user) {
+            // 登录成功瞬间，拉取云端
+            syncArchivesFromCloud(session.user.id).then(data => {
+                if (data.length > 0) setArchives(data);
+            });
             if (window.location.hash.includes('access_token') && !window.location.hash.includes('type=recovery')) {
                  setShowWelcomeModal(true);
                  window.history.replaceState(null, '', window.location.pathname);
@@ -151,6 +160,7 @@ const App: React.FC = () => {
     return () => subscription.unsubscribe();
   }, []);
 
+  // VIP 状态加载
   useEffect(() => {
     const loadData = async () => {
         if (session) {
@@ -161,6 +171,9 @@ const App: React.FC = () => {
     loadData();
   }, [session]);
 
+  // --- 核心业务逻辑 ---
+
+  // 排盘并自动保存
   const handleGenerate = (profile: UserProfile) => {
     try {
         let safeDate = profile.birthDate; 
@@ -173,23 +186,31 @@ const App: React.FC = () => {
         setCurrentTab(AppTab.CHART); 
         setAiReport(null); 
         
-        if (session) {
-            setIsGlobalSaving(true);
-            saveArchive(profile).then(updatedList => {
-                  setArchives(updatedList);
-                  if (updatedList.length > 0 && updatedList[0].name === profile.name) {
-                      setCurrentProfile(prev => prev ? { ...prev, id: updatedList[0].id } : null);
-                  }
-              }).catch(err => console.error(err)).finally(() => setIsGlobalSaving(false));
-        }
+        // 🔥🔥🔥 核心修改：无条件保存！
+        // 无论是否登录，都调用 saveArchive。
+        // service层会自动处理：访客->存本地；登录->存本地+存云端
+        setIsGlobalSaving(true);
+        saveArchive(profile).then(updatedList => {
+              setArchives(updatedList);
+              // 更新当前 profile 的 ID (如果是新生成的)
+              const saved = updatedList.find(p => p.birthDate === profile.birthDate && p.birthTime === profile.birthTime);
+              if (saved) setCurrentProfile(saved);
+        }).catch(err => console.error(err)).finally(() => setIsGlobalSaving(false));
+        
     } catch (e) { 
         alert("排盘失败，请检查出生日期格式"); 
     }
   };
 
+  // 手动保存 (通常用于更新备注或标签)
   const handleManualSave = async () => {
       if (isGlobalSaving) return;
-      if (!currentProfile || !session) return alert('未登录或无数据');
+      if (!currentProfile) return alert('无数据');
+      // 如果未登录，依然允许保存到本地，但可以提示一下
+      if (!session) {
+          // 这里不做拦截，允许访客保存到本地
+      }
+
       setIsGlobalSaving(true);
       try {
           const updatedList = await saveArchive(currentProfile);
@@ -221,6 +242,7 @@ const App: React.FC = () => {
     try {
       const result = await analyzeBaziStructured(baziChart!, key || undefined, isVip);
       setAiReport(result);
+      // 只有登录用户才保存报告到云端历史，避免访客数据过大
       if (currentProfile && session) {
         const updated = await saveAiReportToArchive(currentProfile.id, result.copyText, 'bazi');
         setArchives(updated);
@@ -257,7 +279,7 @@ const App: React.FC = () => {
                           chart={baziChart} 
                           onShowModal={setModalData} 
                           onSaveReport={async (r:string, t:'bazi'|'ziwei')=> { 
-                              if(!session) return alert("请先登录");
+                              if(!session) return alert("请先登录后保存报告");
                               const updated = await saveAiReportToArchive(currentProfile.id, r, t); 
                               setArchives(updated); 
                           }} 
@@ -290,6 +312,7 @@ const App: React.FC = () => {
                       </button>
                   </div>
               );
+              // 传递 isVip 给 AiChatView
               return (
                   <ErrorBoundary>
                       <AiChatView chart={baziChart} profile={currentProfile} isVip={isVip} />
@@ -311,7 +334,7 @@ const App: React.FC = () => {
                   <ZiweiView 
                       profile={currentProfile} 
                       onSaveReport={async (r) => { 
-                          if(!session) return alert("请先登录");
+                          if(!session) return alert("请先登录后保存报告");
                           const updated = await saveAiReportToArchive(currentProfile.id, r, 'ziwei'); 
                           setArchives(updated); 
                       }} 

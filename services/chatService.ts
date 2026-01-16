@@ -1,6 +1,5 @@
 import { BaziChart, UserProfile } from "../types";
 
-// 定义聊天模式
 export type ChatMode = 'bazi' | 'ziwei';
 
 export interface ChatMessage {
@@ -8,9 +7,6 @@ export interface ChatMessage {
   content: string;
 }
 
-/**
- * 1. 智能获取用户称呼
- */
 const getUserName = (profile: UserProfile): string => {
   const rawName = profile.name ? profile.name.trim() : '';
   if (!rawName || rawName === '访客' || rawName === '某某') {
@@ -19,9 +15,6 @@ const getUserName = (profile: UserProfile): string => {
   return rawName;
 };
 
-/**
- * 2. 深度格式化八字排盘数据
- */
 const formatFullChartDetails = (chart: BaziChart): string => {
     const p = chart.pillars;
     
@@ -62,11 +55,7 @@ ${formatPillar('时柱', p.hour)}
     `.trim();
 };
 
-/**
- * 3. 构造八字 System Prompt
- * 🔥 重点优化：增加 "IGNORE PREVIOUS NAMES" 指令
- */
-const getBaziSystemPrompt = (chart: BaziChart, currentGanZhi: string, profile: UserProfile): string => {
+const getBaziSystemPrompt = (chart: BaziChart, timeContext: string, profile: UserProfile): string => {
   const userName = getUserName(profile);
   const chartDetails = formatFullChartDetails(chart);
   
@@ -75,8 +64,8 @@ const getBaziSystemPrompt = (chart: BaziChart, currentGanZhi: string, profile: U
 
 【SECTION 1: 交互对象 (最高优先级)】
 - 你的客户当前称呼是：**${userName}**。
-- ⚠️ **重要指令**：即使在历史聊天记录中我使用了其他名字（如张三、李四等），请**完全忽略**那些旧称呼。从现在开始，**只称呼我为"${userName}"**。
-- **禁止**称呼对方为"访客"或"用户"。
+- ⚠️ **重要指令**：请**完全忽略**历史聊天记录中出现的任何旧名字（如"访客"、"张三"等）。从现在开始，**必须且只能**称呼对方为"**${userName}**"。
+- 禁止称呼"访客"。
 
 【SECTION 2: 命主原始档案 (绝对事实)】
 *当${userName}询问生日或八字时，以此为准*
@@ -87,9 +76,10 @@ const getBaziSystemPrompt = (chart: BaziChart, currentGanZhi: string, profile: U
 【SECTION 3: 命盘全量数据 (分析依据)】
 ${chartDetails}
 
-【SECTION 4: 当前时空 (流年参考)】
-- 当前时间(流年)：${currentGanZhi}
-- 说明：如果${userName}问"今年运势"或"测当下"，请以"${currentGanZhi}"中的干支与命盘进行**流年引动分析**。
+【SECTION 4: 当前时空 (流年绝对标准)】
+- **当前准确时间**：${timeContext}
+- ⚠️ **流年防幻觉指令**：
+  请以【SECTION 4】中的年份和干支为唯一标准。如果公历显示2026年，即使干支历可能在立春前后有交接，也请以提供的“农历/干支”部分为准进行流年分析，**不要使用**你训练数据中的“今年”。
 
 【回答规则】
 1. **专业深度**：利用提供的藏干、纳音、神煞信息进行细节分析。
@@ -102,10 +92,7 @@ ${chartDetails}
 `;
 };
 
-/**
- * 4. 构造紫微 System Prompt
- */
-const getZiweiSystemPrompt = (profile: UserProfile, chartStr: string, currentGanZhi: string): string => {
+const getZiweiSystemPrompt = (profile: UserProfile, chartStr: string, timeContext: string): string => {
   const userName = getUserName(profile);
 
   return `
@@ -113,8 +100,7 @@ const getZiweiSystemPrompt = (profile: UserProfile, chartStr: string, currentGan
 
 【SECTION 1: 交互对象 (最高优先级)】
 - 你的客户当前称呼是：**${userName}**。
-- ⚠️ **重要指令**：请忽略历史记录中的任何旧名字，**只称呼我为"${userName}"**。
-- 禁止称呼"访客"。
+- ⚠️ **重要指令**：请**忽略**历史记录中的任何旧名字，**只称呼我为"${userName}"**。
 
 【SECTION 2: 命主档案】
 - 性别：${profile.gender === 'male' ? '男 (乾造)' : '女 (坤造)'}
@@ -123,8 +109,9 @@ const getZiweiSystemPrompt = (profile: UserProfile, chartStr: string, currentGan
 【SECTION 3: 紫微命盘数据】
 ${chartStr}
 
-【SECTION 4: 当前时空】
-- 当前时间：${currentGanZhi}
+【SECTION 4: 当前时空 (流年绝对标准)】
+- **当前准确时间**：${timeContext}
+- 请以此时间判断流年四化。
 
 【回答规则】
 1. 必须使用紫微斗数理论分析。
@@ -135,9 +122,6 @@ ${chartStr}
 `;
 };
 
-/**
- * 5. 发送对话请求
- */
 export const sendChatMessage = async (
   history: ChatMessage[],
   profile: UserProfile,
@@ -146,7 +130,7 @@ export const sendChatMessage = async (
   mode: ChatMode,
   onStream: (chunk: string) => void,
   isVip: boolean = false,
-  currentGanZhi: string = ''
+  timeContext: string = ''
 ) => {
   const apiKey = sessionStorage.getItem('ai_api_key');
   
@@ -155,8 +139,8 @@ export const sendChatMessage = async (
   }
 
   const systemInstruction = mode === 'bazi' 
-    ? getBaziSystemPrompt(baziChart, currentGanZhi, profile)
-    : getZiweiSystemPrompt(profile, ziweiChartString, currentGanZhi);
+    ? getBaziSystemPrompt(baziChart, timeContext, profile)
+    : getZiweiSystemPrompt(profile, ziweiChartString, timeContext);
 
   const cleanHistory = history.filter(msg => msg.role !== 'system');
   
