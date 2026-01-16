@@ -4,7 +4,8 @@ import { BaziChart, UserProfile } from '../types';
 import { ChatMessage, sendChatMessage, ChatMode } from '../services/chatService';
 import { SmartTextRenderer } from '../components/ui/BaziUI';
 import { calculateChart } from '../ziwei/services/astrologyService';
-// 🔥 引入库用于计算实时时间
+// 🔥 1. 引入八字排盘函数，用于底层重算
+import { calculateBazi } from '../services/baziService'; 
 import { Solar } from 'lunar-javascript';
 
 const CopyButton: React.FC<{ content: string }> = ({ content }) => {
@@ -30,20 +31,20 @@ const CopyButton: React.FC<{ content: string }> = ({ content }) => {
 
 export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVip: boolean }> = ({ chart, profile, isVip }) => {
     
-    // 1. 计算当前的四柱干支 (实时)
+    // 计算实时干支时间
     const currentGanZhi = useMemo(() => {
         try {
             const now = new Date();
             const solar = Solar.fromDate(now);
             const lunar = solar.getLunar();
             const eightChar = lunar.getEightChar();
-            eightChar.setSect(1); // 1=立春换年
+            eightChar.setSect(1); 
             
             return `${eightChar.getYearGan()}${eightChar.getYearZhi()}年 ${eightChar.getMonthGan()}${eightChar.getMonthZhi()}月 ${eightChar.getDayGan()}${eightChar.getDayZhi()}日 ${eightChar.getTimeGan()}${eightChar.getTimeZhi()}时`;
         } catch (e) {
             return "时间获取失败";
         }
-    }, []); // 每次进入对话页面重新计算一次即可
+    }, []); 
 
     const [messages, setMessages] = useState<ChatMessage[]>(() => {
         if (typeof window !== 'undefined') {
@@ -71,29 +72,26 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
     
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    // 紫微数据计算
-    const ziweiDataString = useMemo(() => {
+    // 辅助函数：生成紫微数据字符串
+    const generateZiweiString = (p: UserProfile) => {
         try {
-            if (!profile.birthDate || !profile.birthTime) return "（用户出生信息不完整）";
-            
-            let safeDate = profile.birthDate.replace(/\//g, '-');
+            if (!p.birthDate || !p.birthTime) return "（用户出生信息不完整）";
+            let safeDate = p.birthDate.replace(/\//g, '-');
             const dateParts = safeDate.split('-');
             if (dateParts.length !== 3) return "（日期格式错误）";
 
             const year = parseInt(dateParts[0]);
             const month = parseInt(dateParts[1]);
             const day = parseInt(dateParts[2]);
-            const hour = parseInt(profile.birthTime.split(':')[0]);
-            const genderKey = profile.gender === 'male' ? 'M' : 'F';
-            const lng = profile.longitude || 120;
+            const hour = parseInt(p.birthTime.split(':')[0]);
+            const genderKey = p.gender === 'male' ? 'M' : 'F';
+            const lng = p.longitude || 120;
 
             const zwChart = calculateChart(year, month, day, hour, genderKey, lng);
-            
             if (!zwChart || !zwChart.palaces) return "（紫微排盘失败）";
             
             let desc = "【紫微命盘摘要】\n";
             desc += `五行局：${zwChart.bureau?.name || '未知'}\n`;
-            
             const mingGong = zwChart.palaces.find(p => p.isMing);
             if (mingGong) {
                 desc += `命宫主星：${mingGong.stars?.major?.map(s=>s.name).join(', ') || '无'}\n`;
@@ -101,10 +99,11 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
                 desc += `身宫位置：${shenGong?.name}\n`;
             }
             return desc; 
-        } catch (e: any) {
-            return "（紫微排盘计算异常）";
-        }
-    }, [profile]);
+        } catch (e) { return "（紫微排盘计算异常）"; }
+    };
+
+    // 初始加载一次紫微数据 (用于显示或其他用途，实际发送时会重算)
+    const ziweiDataString = useMemo(() => generateZiweiString(profile), [profile]);
 
     useEffect(() => {
         try {
@@ -141,11 +140,16 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
             
             let fullText = ""; 
             
+            // 🔥🔥🔥 核心修改：在发送前一刻，根据当前 profile 强制重新排盘
+            // 确保发给 AI 的数据与当前用户输入绝对一致
+            const freshBaziChart = calculateBazi(profile);
+            const freshZiweiString = generateZiweiString(profile);
+
             await sendChatMessage(
                 [...messages, userMsg], 
                 profile,
-                chart,
-                ziweiDataString,
+                freshBaziChart,   // 传入刚算好的八字盘
+                freshZiweiString, // 传入刚算好的紫微盘
                 mode, 
                 (chunk) => {
                     fullText += chunk;
@@ -162,7 +166,7 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
                     }
                 },
                 isVip,
-                currentGanZhi // 🔥🔥🔥 关键：将算好的当前时间传给后端
+                currentGanZhi 
             );
 
         } catch (error: any) {
