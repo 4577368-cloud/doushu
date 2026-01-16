@@ -95,46 +95,38 @@ const WelcomeModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
 );
 
 const App: React.FC = () => {
-  // --- 状态管理 ---
   const [currentTab, setCurrentTab] = useState<AppTab>(AppTab.HOME);
   const [currentProfile, setCurrentProfile] = useState<UserProfile | null>(null);
   const [baziChart, setBaziChart] = useState<BaziChart | null>(null);
   const [modalData, setModalData] = useState<ModalData | null>(null);
   
   const [archives, setArchives] = useState<UserProfile[]>([]);
-  
   const [loadingAi, setLoadingAi] = useState(false);
   const [aiReport, setAiReport] = useState<AiBaziReport | null>(null);
   
   const [session, setSession] = useState<any>(null);
   const [isVip, setIsVip] = useState(false);
   
-  // 弹窗控制
   const [showVipModal, setShowVipModal] = useState(false);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [showPasswordResetModal, setShowPasswordResetModal] = useState(false);
   const [isGlobalSaving, setIsGlobalSaving] = useState(false); 
 
-  // --- 生命周期 & Auth 监听 ---
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
         setSession(session);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
         setSession(session);
-        // 处理注册后的跳转
         if (event === 'SIGNED_IN') {
             if (window.location.hash.includes('access_token') && !window.location.hash.includes('type=recovery')) {
                  setShowWelcomeModal(true);
-                 // 清除 URL hash 保持美观
                  window.history.replaceState(null, '', window.location.pathname);
             }
         }
-        // 处理密码重置链接
         if (event === 'PASSWORD_RECOVERY') {
             setShowPasswordResetModal(true);
         }
-        // 登出清理
         if (event === 'SIGNED_OUT') {
             setArchives([]); 
             setIsVip(false); 
@@ -146,7 +138,6 @@ const App: React.FC = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // --- 加载用户数据 ---
   useEffect(() => {
     const loadData = async () => {
         if (session) {
@@ -159,29 +150,22 @@ const App: React.FC = () => {
     loadData();
   }, [session]);
 
-  // --- 核心业务逻辑 ---
-
-  // 排盘
   const handleGenerate = (profile: UserProfile) => {
     try {
-        // 简单的日期格式清洗
         let safeDate = profile.birthDate; 
         if (safeDate.length === 8 && !safeDate.includes('-')) {
             safeDate = `${safeDate.slice(0, 4)}-${safeDate.slice(4, 6)}-${safeDate.slice(6, 8)}`;
         }
-        
         const newBazi = calculateBazi({ ...profile, birthDate: safeDate });
         setCurrentProfile(profile); 
         setBaziChart(newBazi); 
         setCurrentTab(AppTab.CHART); 
-        setAiReport(null); // 切换排盘时清空旧的 AI 报告
+        setAiReport(null); 
         
-        // 如果已登录，自动保存/更新档案
         if (session) {
             setIsGlobalSaving(true);
             saveArchive(profile).then(updatedList => {
                   setArchives(updatedList);
-                  // 确保 currentProfile 拥有最新的 ID（如果是新建的）
                   if (updatedList.length > 0 && updatedList[0].name === profile.name) {
                       setCurrentProfile(prev => prev ? { ...prev, id: updatedList[0].id } : null);
                   }
@@ -192,7 +176,6 @@ const App: React.FC = () => {
     }
   };
 
-  // 手动保存档案
   const handleManualSave = async () => {
       if (isGlobalSaving) return;
       if (!currentProfile || !session) return alert('未登录或无数据');
@@ -200,7 +183,6 @@ const App: React.FC = () => {
       try {
           const updatedList = await saveArchive(currentProfile);
           setArchives(updatedList);
-          // 重新定位当前 Profile 以获取最新 ID
           const latest = updatedList.find(p => p.name === currentProfile.name && p.birthDate === currentProfile.birthDate);
           if (latest) setCurrentProfile(latest);
           alert("档案保存成功");
@@ -211,7 +193,6 @@ const App: React.FC = () => {
       }
   };
 
-  // 激活 VIP
   const handleActivateVip = async () => {
       if (!session) { alert("请先登录！"); return; }
       const success = await activateVipOnCloud(); 
@@ -222,18 +203,14 @@ const App: React.FC = () => {
       }
   };
 
-  // 生成 AI 报告 (单次分析)
   const handleAiAnalysis = async () => {
     if (!baziChart) return;
     const key = sessionStorage.getItem('ai_api_key');
     setLoadingAi(true);
     try {
-      // 这里的 analyzeBaziStructured 是之前的 heavy-request
-      const result = await analyzeBaziStructured(baziChart!, key || undefined);
+      const result = await analyzeBaziStructured(baziChart!, key || undefined, isVip);
       setAiReport(result);
-      
       if (currentProfile && session) {
-        // 自动保存报告到档案
         const updated = await saveAiReportToArchive(currentProfile.id, result.copyText, 'bazi');
         setArchives(updated);
       }
@@ -244,7 +221,6 @@ const App: React.FC = () => {
     }
   };
 
-  // --- 路由渲染逻辑 ---
   const renderContent = () => {
       switch (currentTab) {
           case AppTab.HOME:
@@ -285,45 +261,42 @@ const App: React.FC = () => {
               );
           
           case AppTab.CHAT:
-    if (!isVip) return (
-        <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-[#f5f5f4] space-y-4">
-            <div className="bg-stone-200 p-4 rounded-full"><Crown size={48} className="text-stone-400" /></div>
-            <h3 className="font-bold text-lg text-stone-700">VIP 尊享功能</h3>
-            <p className="text-sm text-stone-500">升级 VIP 解锁无限次 AI 深度对话，<br/>探索更多命理奥秘。</p>
-            <button onClick={() => setShowVipModal(true)} className="px-6 py-3 bg-stone-900 text-amber-400 rounded-xl font-bold shadow-lg active:scale-95 transition-transform">立即解锁</button>
-        </div>
-    );
-    if (!baziChart || !currentProfile) return (
-        <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-[#f5f5f4] space-y-4">
-            <div className="bg-stone-200 p-4 rounded-full"><MessageCircle size={48} className="text-stone-300" /></div>
-            <h3 className="font-bold text-lg text-stone-700">数据缺失</h3>
-            <p className="text-sm text-stone-500 font-medium">AI 需要命盘数据作为依据。<br/>请先进行排盘。</p>
-            <button onClick={() => setCurrentTab(AppTab.HOME)} className="px-6 py-3 bg-stone-900 text-amber-400 rounded-xl font-bold shadow-lg active:scale-95 transition-transform flex items-center gap-2">
-                <Compass size={18} /> 去排盘
-            </button>
-        </div>
-    );
-    
-    // 🔥 修改这里：添加 isVip={isVip}
-    return (
-        <ErrorBoundary>
-            <AiChatView chart={baziChart} profile={currentProfile} isVip={isVip} />
-        </ErrorBoundary>
-    );
+              if (!isVip) return (
+                  <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-[#f5f5f4] space-y-4">
+                      <div className="bg-stone-200 p-4 rounded-full"><Crown size={48} className="text-stone-400" /></div>
+                      <h3 className="font-bold text-lg text-stone-700">VIP 尊享功能</h3>
+                      <p className="text-sm text-stone-500">升级 VIP 解锁无限次 AI 深度对话，<br/>探索更多命理奥秘。</p>
+                      <button onClick={() => setShowVipModal(true)} className="px-6 py-3 bg-stone-900 text-amber-400 rounded-xl font-bold shadow-lg active:scale-95 transition-transform">立即解锁</button>
+                  </div>
+              );
+              if (!baziChart || !currentProfile) return (
+                  <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-[#f5f5f4] space-y-4">
+                      <div className="bg-stone-200 p-4 rounded-full"><MessageCircle size={48} className="text-stone-300" /></div>
+                      <h3 className="font-bold text-lg text-stone-700">数据缺失</h3>
+                      <p className="text-sm text-stone-500 font-medium">AI 需要命盘数据作为依据。<br/>请先进行排盘。</p>
+                      <button onClick={() => setCurrentTab(AppTab.HOME)} className="px-6 py-3 bg-stone-900 text-amber-400 rounded-xl font-bold shadow-lg active:scale-95 transition-transform flex items-center gap-2">
+                          <Compass size={18} /> 去排盘
+                      </button>
+                  </div>
+              );
+              // 🔥🔥🔥 关键：传递 isVip 给 AiChatView
+              return (
+                  <ErrorBoundary>
+                      <AiChatView chart={baziChart} profile={currentProfile} isVip={isVip} />
+                  </ErrorBoundary>
+              );
           
           case AppTab.ZIWEI:
-              if (!currentProfile) {
-                  return (
-                      <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-[#f5f5f4] space-y-4">
-                          <div className="bg-stone-200 p-4 rounded-full"><Sparkles size={48} className="text-stone-300" /></div>
-                          <h3 className="font-bold text-lg text-stone-700">紫微斗数</h3>
-                          <p className="text-sm text-stone-500 font-medium">请先在【首页】输入生辰信息，<br/>即可生成紫微斗数命盘。</p>
-                          <button onClick={() => setCurrentTab(AppTab.HOME)} className="px-6 py-3 bg-stone-900 text-amber-400 rounded-xl font-bold shadow-lg active:scale-95 transition-transform flex items-center gap-2">
-                              <Compass size={18} /> 立即排盘
-                          </button>
-                      </div>
-                  );
-              }
+              if (!currentProfile) return (
+                  <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-[#f5f5f4] space-y-4">
+                      <div className="bg-stone-200 p-4 rounded-full"><Sparkles size={48} className="text-stone-300" /></div>
+                      <h3 className="font-bold text-lg text-stone-700">紫微斗数</h3>
+                      <p className="text-sm text-stone-500 font-medium">请先在【首页】输入生辰信息，<br/>即可生成紫微斗数命盘。</p>
+                      <button onClick={() => setCurrentTab(AppTab.HOME)} className="px-6 py-3 bg-stone-900 text-amber-400 rounded-xl font-bold shadow-lg active:scale-95 transition-transform flex items-center gap-2">
+                          <Compass size={18} /> 立即排盘
+                      </button>
+                  </div>
+              );
               return (
                   <ZiweiView 
                       profile={currentProfile} 
@@ -337,22 +310,8 @@ const App: React.FC = () => {
               );
           
           case AppTab.ARCHIVE:
-              if (!session) return (
-                  <div className="flex flex-col items-center justify-center h-full p-6 bg-[#f5f5f4]">
-                      <Auth onLoginSuccess={()=>{}} />
-                  </div>
-              );
-              return (
-                  <ArchiveView 
-                      archives={archives} 
-                      setArchives={setArchives} 
-                      onSelect={handleGenerate} 
-                      isVip={isVip} 
-                      onVipClick={() => setShowVipModal(true)} 
-                      session={session} 
-                      onLogout={() => supabase.auth.signOut()}
-                  />
-              );
+              if (!session) return <div className="flex flex-col items-center justify-center h-full p-6 bg-[#f5f5f4]"><Auth onLoginSuccess={()=>{}} /></div>;
+              return <ArchiveView archives={archives} setArchives={setArchives} onSelect={handleGenerate} isVip={isVip} onVipClick={() => setShowVipModal(true)} session={session} onLogout={() => supabase.auth.signOut()}/>;
           
           default:
               return <HomeView onGenerate={handleGenerate} archives={archives} />;
@@ -361,36 +320,9 @@ const App: React.FC = () => {
 
   return (
     <div className={`flex flex-col h-screen overflow-hidden text-stone-950 font-sans select-none transition-colors duration-700 ${isVip ? 'bg-[#181816]' : 'bg-[#f5f5f4]'}`}>
-      
-      {/* 顶部导航栏 */}
-      <AppHeader 
-          title={currentTab === AppTab.HOME ? '玄枢命理' : currentProfile?.name || '排盘'} 
-          // 只有在非首页且有数据时，才显示重置按钮
-          rightAction={currentTab !== AppTab.HOME && currentProfile && (
-              <button 
-                  onClick={()=>{
-                      setCurrentProfile(null);
-                      setCurrentTab(AppTab.HOME);
-                      setAiReport(null);
-                  }} 
-                  className={`p-2 rounded-full transition-colors ${isVip ? 'hover:bg-white/10 text-stone-300' : 'hover:bg-stone-100 text-stone-700'}`}
-                  title="重新排盘"
-              >
-                  <RotateCcw size={18} />
-              </button>
-          )} 
-          isVip={isVip} 
-      />
-      
-      {/* 主内容区域 */}
-      <div className="flex-1 overflow-hidden relative">
-          {renderContent()}
-      </div>
-      
-      {/* 底部 Tab */}
+      <AppHeader title={currentTab === AppTab.HOME ? '玄枢命理' : currentProfile?.name || '排盘'} rightAction={currentTab !== AppTab.HOME && currentProfile && (<button onClick={()=>{setCurrentProfile(null);setCurrentTab(AppTab.HOME);setAiReport(null);}} className={`p-2 rounded-full transition-colors ${isVip ? 'hover:bg-white/10 text-stone-300' : 'hover:bg-stone-100 text-stone-700'}`} title="重新排盘"><RotateCcw size={18} /></button>)} isVip={isVip} />
+      <div className="flex-1 overflow-hidden relative">{renderContent()}</div>
       <BottomNav currentTab={currentTab} onTabChange={setCurrentTab} />
-      
-      {/* 全局模态框 */}
       {modalData && <DetailModal data={modalData} chart={baziChart} onClose={() => setModalData(null)} />}
       {showVipModal && <VipActivationModal onClose={() => setShowVipModal(false)} onActivate={handleActivateVip} />}
       {showWelcomeModal && <WelcomeModal onClose={() => setShowWelcomeModal(false)} />}
