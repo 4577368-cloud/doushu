@@ -1,5 +1,5 @@
 import { UserProfile, HistoryItem } from '../types';
-import { supabase } from './supabase'; // 确保这里正确引入了 supabase
+import { supabase } from './supabase';
 
 const STORAGE_KEY = 'bazi_archives';
 
@@ -17,9 +17,10 @@ export const getArchives = async (): Promise<UserProfile[]> => {
 
 /**
  * 🔥 2. 从云端拉取并同步到本地
- * (登录成功后调用)
+ * (登录成功后调用，如果云端有数据，会覆盖本地缓存)
  */
 export const syncArchivesFromCloud = async (userId: string): Promise<UserProfile[]> => {
+  console.log("☁️ [Sync] 正在从云端拉取数据...");
   try {
     const { data, error } = await supabase
       .from('archives')
@@ -27,60 +28,65 @@ export const syncArchivesFromCloud = async (userId: string): Promise<UserProfile
       .eq('user_id', userId)
       .order('updated_at', { ascending: false });
 
-    if (error) throw error;
+    if (error) {
+      console.error("❌ [Sync] 拉取失败:", error.message);
+      return getArchives(); // 出错退回本地
+    }
 
-    if (data) {
-      // 假设数据库存的是结构: { id, user_id, data: { ...profile }, updated_at }
+    if (data && data.length > 0) {
+      console.log(`✅ [Sync] 成功拉取 ${data.length} 条云端档案，正在同步到本地...`);
+      // 解析数据库结构: { id, data: { ...profile } } -> UserProfile
       const cloudArchives: UserProfile[] = data.map((item: any) => ({
          ...item.data, 
          id: item.id || item.data.id, 
       }));
 
+      // 写入本地缓存 (作为最新源)
       localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudArchives));
       return cloudArchives;
+    } else {
+        console.log("⚠️ [Sync] 云端无数据 (可能是新用户)");
+        return getArchives();
     }
-    return [];
   } catch (error) {
-    console.error("云端同步失败:", error);
+    console.error("❌ [Sync] 发生异常:", error);
     return getArchives();
   }
 };
 
 /**
- * 3. 保存或更新档案 (智能合并 + 云端同步)
+ * 🔥 3. 保存或更新档案 (核心函数：本地+云端双写)
  */
 export const saveArchive = async (profile: UserProfile): Promise<UserProfile[]> => {
-  const archives = await getArchives();
+  console.log("📝 [Storage] 开始保存档案:", profile.name);
   
-  // A. 本地合并逻辑
+  let archives = await getArchives();
+  
+  // A. 本地数组逻辑：查找是否存在 (优先用ID匹配，其次用关键信息匹配)
   const existingIndex = archives.findIndex(p => 
-      p.birthDate === profile.birthDate && 
-      p.birthTime === profile.birthTime && 
-      p.gender === profile.gender
+      p.id === profile.id || 
+      (p.birthDate === profile.birthDate && p.birthTime === profile.birthTime && p.name === profile.name)
   );
 
   let finalProfile = profile;
 
   if (existingIndex > -1) {
+    // 更新旧档案
     const oldProfile = archives[existingIndex];
-    const newName = (profile.name && profile.name.trim() !== '某某' && profile.name.trim() !== '') 
-        ? profile.name 
-        : oldProfile.name;
-    const mergedTags = Array.from(new Set([...(oldProfile.tags||[]), ...(profile.tags||[])]));
-    
     finalProfile = {
         ...oldProfile,
         ...profile,
-        name: newName,
-        tags: mergedTags,
+        // 智能合并标签，不丢失旧标签
+        tags: Array.from(new Set([...(oldProfile.tags||[]), ...(profile.tags||[])])),
         aiReports: oldProfile.aiReports || [],
-        id: oldProfile.id // 保持原ID
+        id: oldProfile.id // 保持原ID不变
     };
     archives[existingIndex] = finalProfile;
   } else {
+    // 新增档案
     finalProfile = { 
         ...profile, 
-        id: generateId(),
+        id: profile.id || generateId(), // 确保一定有ID
         createdAt: Date.now(),
         tags: profile.tags || [],
         aiReports: []
@@ -88,90 +94,78 @@ export const saveArchive = async (profile: UserProfile): Promise<UserProfile[]> 
     archives.unshift(finalProfile);
   }
 
-  // B. 写入本地
+  // B. 🔥 第一步：必须立刻写入本地 (保证刷新不丢)
   localStorage.setItem(STORAGE_KEY, JSON.stringify(archives));
+  console.log("✅ [Storage] 本地保存成功");
 
-  // C. 写入云端
+  // C. 🔥 第二步：尝试写入云端 (带详细日志)
   const { data: { session } } = await supabase.auth.getSession();
+  
   if (session?.user) {
-      try {
-          await supabase.from('archives').upsert({
-              user_id: session.user.id,
-              id: finalProfile.id,
-              data: finalProfile,
-              updated_at: new Date().toISOString()
-          });
-      } catch (e) {
-          console.error("云端保存失败:", e);
+      console.log("☁️ [Storage] 检测到登录状态，正在推送到云端...", session.user.id);
+      
+      const payload = {
+          user_id: session.user.id,
+          id: finalProfile.id,
+          data: finalProfile, // 直接存整个对象
+          updated_at: new Date().toISOString()
+      };
+
+      // 使用 upsert: 有则更新，无则插入
+      const { error } = await supabase.from('archives').upsert(payload);
+
+      if (error) {
+          console.error("❌ [Storage] 云端同步失败! 错误信息:", error.message);
+          // 这里的错误通常是 RLS 权限问题，或者表结构不对
+      } else {
+          console.log("🚀 [Storage] 云端同步成功!", finalProfile.name);
       }
+  } else {
+      console.warn("⚠️ [Storage] 未登录，仅保存到本地");
   }
 
   return archives;
 };
 
 /**
- * 4. 删除档案 (本地 + 云端)
+ * 4. 删除档案
  */
 export const deleteArchive = async (id: string): Promise<UserProfile[]> => {
+  console.log("🗑️ [Storage] 正在删除档案:", id);
   const archives = await getArchives();
   const newList = archives.filter(p => p.id !== id);
   
   // A. 本地删除
   localStorage.setItem(STORAGE_KEY, JSON.stringify(newList));
-  localStorage.removeItem(`chat_history_${id}`); // 同时清理聊天记录
+  localStorage.removeItem(`chat_history_${id}`); // 顺便清理聊天记录
 
   // B. 云端删除
   const { data: { session } } = await supabase.auth.getSession();
   if (session?.user) {
-      try {
-          await supabase.from('archives').delete().eq('id', id).eq('user_id', session.user.id);
-      } catch (e) {
-          console.error("云端删除失败:", e);
-      }
+      const { error } = await supabase.from('archives').delete().eq('id', id);
+      if (error) console.error("❌ [Storage] 云端删除失败:", error.message);
+      else console.log("🚀 [Storage] 云端删除成功");
   }
 
   return newList;
 };
 
 /**
- * 5. 更新档案 (本地 + 云端)
+ * 5. 更新档案 (别名，直接复用 saveArchive)
  */
 export const updateArchive = async (updatedProfile: UserProfile): Promise<UserProfile[]> => {
-  const archives = await getArchives();
-  const index = archives.findIndex(p => p.id === updatedProfile.id);
-  
-  if (index > -1) {
-    archives[index] = updatedProfile;
-    
-    // A. 本地更新
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(archives));
-
-    // B. 云端更新
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user) {
-        try {
-            await supabase.from('archives').upsert({
-                user_id: session.user.id,
-                id: updatedProfile.id,
-                data: updatedProfile,
-                updated_at: new Date().toISOString()
-            });
-        } catch (e) {
-            console.error("云端更新失败:", e);
-        }
-    }
-  }
-  return archives;
+  return saveArchive(updatedProfile);
 };
 
 /**
- * 6. 保存 AI 报告 (本地 + 云端)
+ * 6. 保存 AI 报告
  */
 export const saveAiReportToArchive = async (
     profileId: string, 
     content: string, 
     type: 'bazi' | 'ziwei'
 ): Promise<UserProfile[]> => {
+    console.log("🤖 [Storage] 保存 AI 报告...");
     const archives = await getArchives();
     const index = archives.findIndex(p => p.id === profileId);
     
@@ -184,34 +178,19 @@ export const saveAiReportToArchive = async (
             type
         };
         
-        const reports = profile.aiReports || [];
-        profile.aiReports = [newReport, ...reports];
+        // 插入新报告到头部
+        profile.aiReports = [newReport, ...(profile.aiReports || [])];
         archives[index] = profile;
         
-        // A. 本地保存
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(archives));
-
-        // B. 云端保存
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-            try {
-                await supabase.from('archives').upsert({
-                    user_id: session.user.id,
-                    id: profile.id,
-                    data: profile,
-                    updated_at: new Date().toISOString()
-                });
-            } catch (e) {
-                console.error("云端报告保存失败:", e);
-            }
-        }
+        // 复用 saveArchive 逻辑 (它会自动处理本地+云端)
+        // 注意：这里我们只传 profile，saveArchive 会识别并更新它
+        return saveArchive(profile);
     }
     return archives;
 };
 
-// --- VIP 相关接口 (保持不变) ---
+// --- VIP 相关 (暂时仅本地，如需云端需建 user_settings 表) ---
 export const getVipStatus = async (): Promise<boolean> => {
-    // 这里简单起见还是读本地，实际生产环境建议也去查数据库
     return localStorage.getItem('is_vip_user') === 'true';
 };
 
