@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { UserProfile } from '../types';
 
-// 数据库 -> 前端
+// 数据库字段 -> 前端字段
 const mapDbToProfile = (row: any): UserProfile => ({
   id: row.id,
   name: row.name,
@@ -15,6 +15,7 @@ const mapDbToProfile = (row: any): UserProfile => ({
   createdAt: new Date(row.created_at).getTime(),
   tags: row.tags || [],
   avatar: row.avatar,
+  isSelf: row.is_self, // 🔥 新增：读取是否为本人标记
   aiReports: row.reports ? row.reports.map((r: any) => ({
       id: r.id,
       date: new Date(r.created_at).getTime(),
@@ -23,7 +24,7 @@ const mapDbToProfile = (row: any): UserProfile => ({
   })) : []
 });
 
-// 前端 -> 数据库
+// 前端字段 -> 数据库字段
 const mapProfileToDb = (profile: UserProfile, userId: string) => ({
   user_id: userId,
   name: profile.name,
@@ -36,11 +37,13 @@ const mapProfileToDb = (profile: UserProfile, userId: string) => ({
   longitude: profile.longitude || 0,
   tags: profile.tags || [],
   avatar: profile.avatar || 'default',
+  is_self: profile.isSelf || false, // 🔥 新增：写入是否为本人标记
   updated_at: new Date().toISOString()
 });
 
 /**
- * 获取档案
+ * 获取所有档案
+ * 排序逻辑：本人档案置顶，其他档案按创建时间倒序
  */
 export const getArchives = async (): Promise<UserProfile[]> => {
   const { data: { user } } = await supabase.auth.getUser();
@@ -49,6 +52,7 @@ export const getArchives = async (): Promise<UserProfile[]> => {
   const { data, error } = await supabase
     .from('archives')
     .select('*, reports(*)') 
+    .order('is_self', { ascending: false }) // 🔥 关键修改：让"我"排在最前
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -59,7 +63,7 @@ export const getArchives = async (): Promise<UserProfile[]> => {
 };
 
 /**
- * 保存档案
+ * 保存档案 (新建或更新)
  */
 export const saveArchive = async (profile: UserProfile): Promise<UserProfile[]> => {
   const { data: { user } } = await supabase.auth.getUser();
@@ -69,13 +73,17 @@ export const saveArchive = async (profile: UserProfile): Promise<UserProfile[]> 
   }
 
   const dbData = mapProfileToDb(profile, user.id);
+  
+  // 检查是否为有效的 UUID (判断是新建还是更新)
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(profile.id);
 
   let error;
   if (isUUID) {
+      // 旧档案：更新
       const { error: updateErr } = await supabase.from('archives').update(dbData).eq('id', profile.id);
       error = updateErr;
   } else {
+      // 新档案：插入（不传 id，由数据库生成）
       const { error: insertErr } = await supabase.from('archives').insert(dbData);
       error = insertErr;
   }
@@ -107,51 +115,49 @@ export const saveAiReportToArchive = async (profileId: string, reportContent: st
   return getArchives();
 };
 
-// --- 🔥 新增：VIP 云端同步功能 ---
+// --- VIP 相关逻辑 ---
 
 /**
- * 获取当前用户的 VIP 状态
+ * 从云端获取 VIP 状态
  */
 export const getVipStatus = async (): Promise<boolean> => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return false;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
 
-    // 查询 profiles 表
-    const { data, error } = await supabase
-        .from('profiles')
-        .select('is_vip')
-        .eq('id', user.id)
-        .maybeSingle(); // 使用 maybeSingle 防止数据不存在时报错
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('is_vip')
+    .eq('id', user.id)
+    .single();
 
-    if (error) {
-        console.error("查询 VIP 状态失败:", error);
-        return false;
-    }
-    
-    return data?.is_vip || false;
+  if (error || !data) return false;
+  return data.is_vip || false;
 };
 
 /**
- * 在云端激活 VIP
+ * 激活 VIP 并同步到云端
  */
 export const activateVipOnCloud = async (): Promise<boolean> => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return false;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+      alert("请先登录账号，VIP 将绑定至您的邮箱！");
+      return false;
+  }
 
-    // 更新或插入 profile
-    const { error } = await supabase
-        .from('profiles')
-        .upsert({
-            id: user.id,
-            email: user.email,
-            is_vip: true,
-            updated_at: new Date().toISOString()
-        });
+  // 使用 upsert：如果存在就更新，不存在就插入
+  const { error } = await supabase
+    .from('profiles')
+    .upsert({ 
+        id: user.id, 
+        email: user.email,
+        is_vip: true,
+        updated_at: new Date().toISOString()
+    });
 
-    if (error) {
-        console.error("激活 VIP 失败:", error);
-        alert(`激活失败: ${error.message}`);
-        return false;
-    }
-    return true;
+  if (error) {
+      console.error("激活失败:", error);
+      alert("云端同步失败，请联系客服");
+      return false;
+  }
+  return true;
 };

@@ -19,8 +19,8 @@ export interface UserProfile {
   id: string;
   name: string;
   gender: Gender;
-  birthDate: string; // YYYY-MM-DD
-  birthTime: string; // HH:mm
+  birthDate: string;
+  birthTime: string;
   isSolarTime: boolean;
   province?: string;
   city?: string;
@@ -29,6 +29,7 @@ export interface UserProfile {
   createdAt?: number;
   aiReports?: HistoryItem[];
   avatar?: string;
+  isSelf?: boolean; // 🔥 新增：标记是否为本人
 }
 
 export interface HistoryItem {
