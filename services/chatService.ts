@@ -1,12 +1,54 @@
-import { BaziChart, UserProfile, ChatMode } from "../types";
+import { BaziChart, UserProfile } from "../types";
+
+// 定义聊天模式
+export type ChatMode = 'bazi' | 'ziwei';
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
 }
 
-// ... (getBaziSystemPrompt 等辅助函数保持不变，省略) ...
+/**
+ * 构造八字系统提示词
+ */
+const getBaziSystemPrompt = (chart: BaziChart): string => {
+  return `
+你是一位精通《子平真诠》、《滴天髓》的八字命理大师。
+当前命盘信息：
+- 日主：${chart.dayMaster} (${chart.dayMasterElement || '未知'})
+- 格局：${chart.pattern.name}
+- 五行分布：${JSON.stringify(chart.wuxingCounts)}
+- 喜用神：${chart.balance.yongShen.join(', ')}
 
+请遵循以下规则：
+1.用八字理论（五行生克、十神、刑冲合害）分析用户问题。
+2.语气专业、温暖、客观。
+3.回答结尾必须提供3个相关的追问建议，格式必须严格如下：
+|||问题1;问题2;问题3
+`;
+};
+
+/**
+ * 构造紫微系统提示词
+ */
+const getZiweiSystemPrompt = (profile: UserProfile, chartStr: string): string => {
+  return `
+你是一位精通“紫微斗数”的命理大师（三合派/飞星派兼修）。
+当前命主信息：${profile.name} (${profile.gender === 'male' ? '乾造' : '坤造'})
+紫微命盘数据如下：
+${chartStr}
+
+请遵循以下规则：
+1. **必须**使用紫微斗数理论（宫位、主星、四化、吉凶星组合）进行分析，不要提及八字术语。
+2. 重点分析相关的宫位（如问财运看财帛宫，问事业看官禄宫）。
+3. 回答结尾必须提供3个相关的追问建议，格式必须严格如下：
+|||问题1;问题2;问题3
+`;
+};
+
+/**
+ * 发送对话请求 (支持流式响应 + VIP免Key)
+ */
 export const sendChatMessage = async (
   history: ChatMessage[],
   profile: UserProfile,
@@ -14,62 +56,96 @@ export const sendChatMessage = async (
   ziweiChartString: string, 
   mode: ChatMode,
   onStream: (chunk: string) => void,
-  isVip: boolean // 🔥 必须接收这个参数
+  isVip: boolean = false
 ) => {
-  
   // 1. 获取本地 Key
-  const userKey = sessionStorage.getItem('ai_api_key');
+  const apiKey = sessionStorage.getItem('ai_api_key');
   
-  // 🔥🔥🔥 关键修复在这里 🔥🔥🔥
-  // 旧代码是：if (!userKey) throw new Error("API Key missing");
-  // 新代码意思：如果你不是 VIP，且你还没填 Key，那才报错。
-  if (!isVip && !userKey) {
+  // 校验：如果不是 VIP 且没有 Key，拦截请求
+  if (!isVip && !apiKey) {
     throw new Error("API Key missing - 请在设置中输入 Key，或升级 VIP 免 Key 使用");
   }
 
-  // 2. 构造 System Prompt (你的原逻辑)
-  // 假设你已经在文件上方定义了 getBaziSystemPrompt 和 getZiweiSystemPrompt
-  // 这里为了代码简洁，我用伪代码代替，请保留你原来的 Prompt 生成逻辑
+  // 2. 准备系统提示词
   const systemInstruction = mode === 'bazi' 
-    ? `(这里是你原来的八字 Prompt 生成逻辑)` 
-    : `(这里是你原来的紫微 Prompt 生成逻辑)`; 
+    ? getBaziSystemPrompt(baziChart)
+    : getZiweiSystemPrompt(profile, ziweiChartString);
 
-  // 3. 发送请求给后端 (Next.js / Vercel API)
+  // 3. 构造消息列表 (过滤掉历史中的 system 消息，防止重复)
+  const cleanHistory = history.filter(msg => msg.role !== 'system');
+  
+  const messagesForAi = [
+    { role: "system", content: systemInstruction },
+    ...cleanHistory.map(msg => ({
+      role: msg.role,
+      content: msg.content
+    }))
+  ];
+
   try {
+    // 4. 请求后端
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        messages: [
-            { role: "system", content: systemInstruction },
-            // 过滤掉历史中的 system 消息，防止重复
-            ...history.filter(m => m.role !== 'system').slice(-20)
-        ],
-        // 🔥 如果是 VIP，这里传 undefined，后端就会去读环境变量
-        apiKey: userKey || undefined 
-      }),
+      body: JSON.stringify({
+        apiKey: apiKey || undefined, // VIP 传 undefined，后端会自动读取环境变量
+        messages: messagesForAi
+      })
     });
 
     if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || `请求失败: ${response.statusText}`);
+        // 尝试读取后端返回的 JSON 错误信息
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `请求失败: ${response.status} ${response.statusText}`);
     }
-    
-    if (!response.body) throw new Error("No response body");
 
-    // 4. 处理流式响应
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder('utf-8');
+    if (!reader) throw new Error('无法读取响应流');
+
+    // 🔥🔥🔥 核心：流式解析缓冲区 (Buffer) 🔥🔥🔥
+    // 这个 buffer 专门用来处理因为网络分包而被截断的 JSON 字符串
+    let buffer = '';
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      const text = decoder.decode(value, { stream: true });
-      onStream(text);
-    }
+      
+      // 1. 解码当前数据包并拼接到缓冲区
+      const chunk = decoder.decode(value, { stream: true });
+      buffer += chunk;
+      
+      // 2. 按换行符分割数据
+      const lines = buffer.split('\n');
+      
+      // 3. 核心技巧：保留最后一行到下一次循环
+      // 因为最后一行数据可能是不完整的（例如只传输了一半的 JSON），不能现在解析
+      buffer = lines.pop() || ''; 
 
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+        if (!trimmedLine) continue; // 跳过空行
+        if (trimmedLine === 'data: [DONE]') continue; // 结束标志
+        
+        // 4. 解析 SSE 数据行
+        if (trimmedLine.startsWith('data: ')) {
+          const jsonStr = trimmedLine.slice(6); // 去掉 "data: " 前缀
+          try {
+            const json = JSON.parse(jsonStr);
+            // 提取 AI 生成的文本片段
+            const content = json.choices[0]?.delta?.content || '';
+            if (content) {
+                onStream(content);
+            }
+          } catch (e) {
+            // 解析失败通常是因为数据包还没传完，忽略这次错误，等待下个数据包拼接
+            console.warn("解析流式 JSON 失败 (可忽略):", jsonStr);
+          }
+        }
+      }
+    }
   } catch (error) {
-    console.error("Chat Error:", error);
+    console.error('DeepSeek Chat Error:', error);
     throw error;
   }
 };
