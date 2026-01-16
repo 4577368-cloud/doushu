@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useLayoutEffect } from 'react';
-import { Send, Crown, HelpCircle, Activity, Sparkles, User, Copy, Check, Trash2, ArrowDown } from 'lucide-react';
+import { Send, Crown, HelpCircle, Activity, Sparkles, User, Copy, Check, Trash2, ArrowDown, Lightbulb } from 'lucide-react';
 import { BaziChart, UserProfile } from '../types';
 import { ChatMessage, sendChatMessage, ChatMode } from '../services/chatService';
 import { SmartTextRenderer } from '../components/ui/BaziUI';
@@ -7,6 +7,7 @@ import { calculateChart } from '../ziwei/services/astrologyService';
 import { calculateBazi } from '../services/baziService'; 
 import { Solar } from 'lunar-javascript';
 
+// --- 子组件：复制按钮 ---
 const CopyButton: React.FC<{ content: string }> = ({ content }) => {
     const [copied, setCopied] = useState(false);
     const handleCopy = () => {
@@ -24,21 +25,53 @@ const CopyButton: React.FC<{ content: string }> = ({ content }) => {
     );
 };
 
+// --- 子组件：气泡内建议按钮组 ---
+const InChatSuggestions: React.FC<{ rawContent: string; onSend: (text: string) => void }> = ({ rawContent, onSend }) => {
+    // 提取 ||| 后面的内容
+    const parts = rawContent.split('|||');
+    if (parts.length < 2) return null;
+
+    const suggestionStr = parts[1];
+    // 分割建议，支持中文或英文分号
+    const suggestions = suggestionStr.split(/[;；]/).map(s => s.trim()).filter(s => s);
+
+    if (suggestions.length === 0) return null;
+
+    return (
+        <div className="mt-3 flex flex-col gap-2 border-t border-stone-100 pt-3">
+            <div className="flex items-center gap-1 text-[10px] text-stone-400 font-bold uppercase tracking-wider">
+                <Lightbulb size={10} />
+                <span>相关追问</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+                {suggestions.map((s, i) => (
+                    <button 
+                        key={i} 
+                        onClick={() => onSend(s)}
+                        className="text-left text-xs bg-stone-50 text-stone-600 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 border border-stone-200 px-3 py-2 rounded-xl transition-all active:scale-95 leading-relaxed"
+                    >
+                        {s}
+                    </button>
+                ))}
+            </div>
+        </div>
+    );
+};
+
 export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVip: boolean }> = ({ chart, profile, isVip }) => {
     
-    // --- 1. 时间计算 (公历 + 干支) ---
+    // --- 1. 时间计算 ---
     const timeContext = useMemo(() => {
         try {
             const now = new Date();
             const solar = Solar.fromDate(now);
             const lunar = solar.getLunar();
             const eightChar = lunar.getEightChar();
-            eightChar.setSect(1); // 以立春为界
+            eightChar.setSect(1); 
             
             const gregorianStr = `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日`;
             const ganzhiStr = `${eightChar.getYearGan()}${eightChar.getYearZhi()}年 ${eightChar.getMonthGan()}${eightChar.getMonthZhi()}月 ${eightChar.getDayGan()}${eightChar.getDayZhi()}日`;
             
-            // 返回组合字符串，让AI同时看到公历和干支，避免幻觉
             return `公历${gregorianStr} (农历/干支：${ganzhiStr})`;
         } catch (e) { return "时间获取失败"; }
     }, []); 
@@ -63,15 +96,28 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
     
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
-    const [suggestions, setSuggestions] = useState<string[]>(['我的事业运如何？', '最近财运怎么样？', '感情方面有桃花吗？']);
+    
+    // 🔥 建议状态：不再依赖流式回调，而是直接通过 messages 计算属性得出
+    const activeSuggestions = useMemo(() => {
+        if (loading) return []; // 加载时不显示建议
+        const lastMsg = messages[messages.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant') {
+            const parts = lastMsg.content.split('|||');
+            if (parts.length > 1) {
+                return parts[1].split(/[;；]/).map(s => s.trim()).filter(s => s);
+            }
+        }
+        // 默认建议
+        if (messages.length <= 1) return ['我的事业运如何？', '最近财运怎么样？', '感情方面有桃花吗？'];
+        return [];
+    }, [messages, loading]);
+
     const [mode, setMode] = useState<ChatMode>('bazi'); 
     
     // 滚动相关
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const chatContainerRef = useRef<HTMLDivElement>(null);
     const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
-    
-    // 🔥 解决痛点2：使用 isReady 控制透明度，实现“无感加载”
     const [isReady, setIsReady] = useState(false);
 
     // --- 3. 紫微数据辅助 ---
@@ -100,9 +146,7 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
     };
     const ziweiDataString = useMemo(() => generateZiweiString(profile), [profile]);
 
-    // --- 4. 滚动逻辑 (核心修复) ---
-    
-    // 监听用户手动滚动
+    // --- 4. 滚动逻辑 ---
     const handleScroll = () => {
         if (chatContainerRef.current) {
             const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
@@ -111,29 +155,23 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
         }
     };
 
-    // 自动保存
     useEffect(() => {
         const key = `chat_history_${profile.id}`;
         localStorage.setItem(key, JSON.stringify(messages));
     }, [messages, profile.id]);
 
-    // 🔥 页面初始化：静默定位到底部
     useLayoutEffect(() => {
         if (chatContainerRef.current) {
-            // 直接修改 scrollTop，不使用 scrollIntoView，避免动画
             chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-            // 定位完成后，显示内容
             requestAnimationFrame(() => setIsReady(true));
         }
-    }, []); // 仅在挂载时执行一次
+    }, []);
 
-    // 🔥 消息更新：平滑滚动 (仅当用户没往上滑时)
     useEffect(() => {
         if (isReady && !isUserScrolledUp) {
             messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
         }
     }, [messages, isReady, isUserScrolledUp]);
-
 
     // --- 5. 交互逻辑 ---
     const handleClearHistory = () => {
@@ -143,9 +181,7 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
                 content: `对话已重置。\n我是您的专属命理师，当前时空【${timeContext}】，请问您现在想了解什么？` 
             };
             setMessages([defaultMsg]);
-            setSuggestions(['我的事业运如何？', '最近财运怎么样？', '感情方面有桃花吗？']);
             localStorage.removeItem(`chat_history_${profile.id}`);
-            // 强制复位
             setIsUserScrolledUp(false);
             if (chatContainerRef.current) chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
         }
@@ -158,16 +194,13 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
         const userMsg: ChatMessage = { role: 'user', content: msgContent };
         setMessages(prev => [...prev, userMsg]);
         setInput('');
-        setSuggestions([]); 
         setLoading(true);
-        setIsUserScrolledUp(false); // 发送新消息强制回底
+        setIsUserScrolledUp(false); 
 
         try {
             setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
             
             let fullText = ""; 
-            
-            // 实时重算数据，确保名字和八字是最新的
             const freshBaziChart = calculateBazi(profile);
             const freshZiweiString = generateZiweiString(profile);
 
@@ -179,20 +212,17 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
                 mode, 
                 (chunk) => {
                     fullText += chunk;
-                    const parts = fullText.split('|||');
+                    // 流式更新消息内容，但不在这里手动 setSuggestions
+                    // 让 useMemo 根据 fullText 自动推导 suggestions
                     setMessages(prev => {
                         const newMsgs = [...prev];
                         const last = newMsgs[newMsgs.length - 1];
-                        if (last.role === 'assistant') last.content = parts[0];
+                        if (last.role === 'assistant') last.content = fullText;
                         return newMsgs;
                     });
-                    if (parts[1]) {
-                        const newSugs = parts[1].split(/[;；]/).map(s=>s.trim()).filter(s=>s);
-                        if (newSugs.length > 0) setSuggestions(newSugs);
-                    }
                 },
                 isVip,
-                timeContext // 传入公历+干支
+                timeContext
             );
 
         } catch (error: any) {
@@ -219,7 +249,7 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
                 <button onClick={handleClearHistory} className="w-8 h-8 flex items-center justify-center text-stone-400 hover:text-rose-500 hover:bg-rose-50 rounded-full transition-colors"><Trash2 size={16} /></button>
             </div>
 
-            {/* 消息列表区 - 🔥 使用 opacity 控制显隐，解决闪烁问题 */}
+            {/* 消息列表区 */}
             <div 
                 ref={chatContainerRef}
                 onScroll={handleScroll}
@@ -235,9 +265,16 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
                         <div className="flex flex-col max-w-[85%]">
                             <div className={`p-3.5 rounded-2xl text-[15px] leading-relaxed shadow-sm transition-all ${msg.role === 'user' ? 'bg-stone-900 text-white rounded-tr-none' : 'bg-white text-stone-800 rounded-tl-none border border-stone-100'}`}>
                                 <div className="select-text cursor-text selection:bg-indigo-100 selection:text-indigo-900" style={{ WebkitUserSelect: 'text', userSelect: 'text', wordBreak: 'break-word' }}>
-                                    <SmartTextRenderer content={msg.content} className={msg.role === 'user' ? 'text-white' : 'text-stone-800'} />
+                                    {/* 显示正文 (去掉 ||| 后面的内容) */}
+                                    <SmartTextRenderer content={msg.content.split('|||')[0]} className={msg.role === 'user' ? 'text-white' : 'text-stone-800'} />
                                 </div>
+                                
+                                {/* 🔥🔥🔥 核心修复：气泡内部渲染可点击建议 🔥🔥🔥 */}
+                                {msg.role === 'assistant' && !loading && (
+                                    <InChatSuggestions rawContent={msg.content} onSend={handleSend} />
+                                )}
                             </div>
+                            {/* 复制按钮只复制正文 */}
                             {msg.role === 'assistant' && msg.content && <CopyButton content={msg.content} />}
                         </div>
                         {msg.role === 'user' && <div className="w-8 h-8 rounded-full bg-stone-200 flex items-center justify-center shrink-0 ml-2 mt-1"><User size={16} className="text-stone-500"/></div>}
@@ -245,7 +282,6 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
                 ))}
                 
                 {loading && <div className="flex items-center gap-2 p-4 text-xs text-stone-400 animate-pulse"><Activity size={14} className="animate-spin"/> <span>大师正在推演中...</span></div>}
-                
                 <div ref={messagesEndRef} className="h-2"/>
             </div>
 
@@ -260,9 +296,10 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
 
             {/* 底部输入区 */}
             <div className="p-3 bg-white border-t border-stone-200 z-20 pb-safe">
-                {suggestions.length > 0 && !loading && (
+                {/* 底部依然保留建议栏，但数据源与气泡内一致，确保同步 */}
+                {activeSuggestions.length > 0 && !loading && (
                     <div className="flex gap-2 overflow-x-auto no-scrollbar mb-3 px-1">
-                        {suggestions.map((s,i) => (<button key={i} onClick={()=>handleSend(s)} className="whitespace-nowrap px-3 py-1.5 text-xs font-bold rounded-full bg-stone-50 border border-stone-200 text-stone-600 hover:bg-stone-100 transition-colors flex items-center gap-1 active:scale-95"><HelpCircle size={12}/>{s}</button>))}
+                        {activeSuggestions.map((s,i) => (<button key={i} onClick={()=>handleSend(s)} className="whitespace-nowrap px-3 py-1.5 text-xs font-bold rounded-full bg-stone-50 border border-stone-200 text-stone-600 hover:bg-stone-100 transition-colors flex items-center gap-1 active:scale-95"><HelpCircle size={12}/>{s}</button>))}
                     </div>
                 )}
                 <div className="flex gap-2 items-end">
