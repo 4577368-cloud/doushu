@@ -16,12 +16,14 @@ export const getArchives = async (): Promise<UserProfile[]> => {
 };
 
 /**
- * 🔥 2. 从云端拉取并同步到本地
- * (登录成功后调用，如果云端有数据，会覆盖本地缓存)
+ * 🔥 2. 从云端拉取并【智能合并】到本地
+ * (登录成功后调用，或者用户点击“同步”按钮时调用)
+ * 逻辑：云端数据覆盖本地同ID数据，但保留本地独有的离线数据。
  */
 export const syncArchivesFromCloud = async (userId: string): Promise<UserProfile[]> => {
   console.log("☁️ [Sync] 正在从云端拉取数据...");
   try {
+    // 1. 获取云端最新数据
     const { data, error } = await supabase
       .from('archives')
       .select('*')
@@ -30,24 +32,49 @@ export const syncArchivesFromCloud = async (userId: string): Promise<UserProfile
 
     if (error) {
       console.error("❌ [Sync] 拉取失败:", error.message);
-      return getArchives(); // 出错退回本地
+      // 如果云端挂了，至少返回本地数据，不至于白屏
+      return getArchives(); 
     }
 
-    if (data && data.length > 0) {
-      console.log(`✅ [Sync] 成功拉取 ${data.length} 条云端档案，正在同步到本地...`);
-      // 解析数据库结构: { id, data: { ...profile } } -> UserProfile
+    if (data) {
+      // 2. 转换云端数据格式
       const cloudArchives: UserProfile[] = data.map((item: any) => ({
          ...item.data, 
          id: item.id || item.data.id, 
       }));
 
-      // 写入本地缓存 (作为最新源)
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudArchives));
-      return cloudArchives;
-    } else {
-        console.log("⚠️ [Sync] 云端无数据 (可能是新用户)");
-        return getArchives();
+      // 3. 获取当前本地数据 (防止覆盖掉未同步的本地草稿)
+      const localArchives = await getArchives();
+
+      // 4. 🔥 智能合并逻辑
+      // 使用 Map 以 ID 为 Key 进行去重
+      const mergedMap = new Map<string, UserProfile>();
+
+      // A. 先把【本地数据】放进去
+      localArchives.forEach(p => mergedMap.set(p.id, p));
+
+      // B. 再把【云端数据】覆盖进去 (云端为最新真理)
+      // 这样做的结果：
+      // - 两边都有：变成了云端版 (实现多端同步)
+      // - 只有本地有：保留 (可能是刚建的还没传上去)
+      // - 只有云端有：新增 (实现换设备拉取)
+      cloudArchives.forEach(p => mergedMap.set(p.id, p));
+
+      // C. 转回数组并按创建时间倒序
+      const mergedList = Array.from(mergedMap.values()).sort((a, b) => 
+        (b.createdAt || 0) - (a.createdAt || 0)
+      );
+
+      console.log(`✅ [Sync] 同步完成: 云端${cloudArchives.length}条 + 本地${localArchives.length}条 -> 合并后${mergedList.length}条`);
+
+      // 5. 写入本地缓存 (作为最新源)
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(mergedList));
+      return mergedList;
     }
+    
+    // 如果云端是空的 (新用户)，返回本地数据
+    return getArchives();
+
   } catch (error) {
     console.error("❌ [Sync] 发生异常:", error);
     return getArchives();
