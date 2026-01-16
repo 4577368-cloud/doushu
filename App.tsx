@@ -1,12 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { RotateCcw, MessageCircle, Crown, Activity, Sparkles, Compass, CheckCircle, Lock, KeyRound } from 'lucide-react';
-
 import { supabase } from './services/supabase';
 import { Auth } from './Auth';
 import { AppTab, UserProfile, BaziChart, ModalData, BaziReport as AiBaziReport } from './types';
 import { calculateBazi } from './services/baziService';
 import { analyzeBaziStructured } from './services/geminiService';
-import { getArchives, saveArchive, saveAiReportToArchive, getVipStatus, activateVipOnCloud } from './services/storageService';
+import { 
+  getArchives, 
+  saveArchive, 
+  saveAiReportToArchive, 
+  getVipStatus, 
+  activateVipOnCloud, 
+  syncArchivesFromCloud 
+} from './services/storageService';
 
 import { BottomNav } from './components/Layout';
 import { AppHeader } from './components/ui/AppHeader'; 
@@ -20,7 +26,6 @@ import { BaziChartView } from './views/BaziChartView';
 import { AiChatView } from './views/AiChatView';
 import ZiweiView from './components/ZiweiView'; 
 
-// --- 内联组件：密码重置弹窗 ---
 const PasswordResetModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -72,7 +77,6 @@ const PasswordResetModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     );
 };
 
-// --- 内联组件：欢迎弹窗 ---
 const WelcomeModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
     <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 animate-in fade-in duration-300">
         <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm" onClick={onClose} />
@@ -115,10 +119,19 @@ const App: React.FC = () => {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
         setSession(session);
+        if (session?.user) {
+            syncArchivesFromCloud(session.user.id).then(data => setArchives(data));
+        } else {
+            getArchives().then(data => setArchives(data));
+        }
     });
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
         setSession(session);
         if (event === 'SIGNED_IN') {
+            if (session?.user) {
+                syncArchivesFromCloud(session.user.id).then(data => setArchives(data));
+            }
             if (window.location.hash.includes('access_token') && !window.location.hash.includes('type=recovery')) {
                  setShowWelcomeModal(true);
                  window.history.replaceState(null, '', window.location.pathname);
@@ -141,8 +154,6 @@ const App: React.FC = () => {
   useEffect(() => {
     const loadData = async () => {
         if (session) {
-            const data = await getArchives();
-            setArchives(data);
             const vip = await getVipStatus();
             setIsVip(vip);
         }
@@ -279,7 +290,6 @@ const App: React.FC = () => {
                       </button>
                   </div>
               );
-              // 🔥🔥🔥 关键：传递 isVip 给 AiChatView
               return (
                   <ErrorBoundary>
                       <AiChatView chart={baziChart} profile={currentProfile} isVip={isVip} />
