@@ -1,18 +1,13 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from "openai";
 import { BaziChart, UserProfile } from "../types";
-import { getMetaphysicsPrompt } from "./geminiService"; 
-// 假设你有一个紫微排盘的格式化工具，如果没有，我们在下面的代码里简单处理
-// import { formatZiweiChart } from "./astrologyService"; 
 
-const API_KEY = "你的API_KEY"; // 实际项目中请从环境变量或 SessionStorage 获取
+// 定义聊天模式
+export type ChatMode = 'bazi' | 'ziwei';
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
 }
-
-// 定义聊天模式
-export type ChatMode = 'bazi' | 'ziwei';
 
 /**
  * 构造八字系统提示词
@@ -56,54 +51,53 @@ export const sendChatMessage = async (
   history: ChatMessage[],
   profile: UserProfile,
   baziChart: BaziChart,
-  ziweiChartString: string, // 传入格式化后的紫微盘字符串
+  ziweiChartString: string, 
   mode: ChatMode,
   onStream: (chunk: string) => void
 ) => {
+  // 1. 获取 Key (DeepSeek 的 Key)
   const apiKey = sessionStorage.getItem('ai_api_key');
   if (!apiKey) throw new Error("API Key missing");
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+  // 2. 初始化 OpenAI 客户端 (DeepSeek 兼容)
+  const client = new OpenAI({
+    baseURL: 'https://api.deepseek.com', // 🔥 DeepSeek 官方地址
+    apiKey: apiKey,
+    dangerouslyAllowBrowser: true // 允许前端直接调用
+  });
 
-  // 🔥 核心逻辑：根据当前模式，动态切换系统人设
+  // 3. 准备系统提示词
   const systemInstruction = mode === 'bazi' 
     ? getBaziSystemPrompt(baziChart)
     : getZiweiSystemPrompt(profile, ziweiChartString);
 
-  // 构造发送给 AI 的完整上下文
-  // 注意：我们将历史记录保留，这样 AI 知道之前聊了什么
-  // 但我们通过 System Message 告诉 AI：“现在请用 [新模式] 的视角来回答下一句”
-  const chatHistoryForAi = [
-    {
-      role: 'user',
-      parts: [{ text: `System Instruction: ${systemInstruction}` }]
-    },
+  // 4. 构造消息列表 (System + History)
+  const messagesForAi = [
+    { role: "system", content: systemInstruction },
     ...history.map(msg => ({
-      role: msg.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: msg.content }]
+      role: msg.role,
+      content: msg.content
     }))
   ];
 
   try {
-    const chat = model.startChat({
-      history: chatHistoryForAi.slice(0, -1), // 历史记录
-      generationConfig: {
-        maxOutputTokens: 2000,
-        temperature: 0.7,
-      },
+    // 5. 发起流式请求
+    const stream = await client.chat.completions.create({
+      messages: messagesForAi as any,
+      model: "deepseek-chat", // 🔥 使用 DeepSeek 模型
+      stream: true,
+      temperature: 0.7,
+      max_tokens: 2000
     });
 
-    // 发送最后一条消息
-    const lastMsg = chatHistoryForAi[chatHistoryForAi.length - 1];
-    const result = await chat.sendMessageStream(lastMsg.parts[0].text);
-
-    for await (const chunk of result.stream) {
-      const text = chunk.text();
-      onStream(text);
+    for await (const chunk of stream) {
+      const content = chunk.choices[0]?.delta?.content || "";
+      if (content) {
+        onStream(content);
+      }
     }
   } catch (error) {
-    console.error("Chat Error:", error);
+    console.error("DeepSeek Chat Error:", error);
     throw error;
   }
 };
