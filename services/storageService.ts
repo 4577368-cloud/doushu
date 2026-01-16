@@ -1,163 +1,138 @@
-import { supabase } from './supabase';
-import { UserProfile } from '../types';
+import { UserProfile, HistoryItem } from '../types';
 
-// 数据库字段 -> 前端字段
-const mapDbToProfile = (row: any): UserProfile => ({
-  id: row.id,
-  name: row.name,
-  gender: row.gender,
-  birthDate: row.birth_date,
-  birthTime: row.birth_time,
-  isSolarTime: row.is_solar_time,
-  province: row.province,
-  city: row.city,
-  longitude: row.longitude,
-  createdAt: new Date(row.created_at).getTime(),
-  tags: row.tags || [],
-  avatar: row.avatar,
-  isSelf: row.is_self, // 🔥 新增：读取是否为本人标记
-  aiReports: row.reports ? row.reports.map((r: any) => ({
-      id: r.id,
-      date: new Date(r.created_at).getTime(),
-      content: r.content,
-      type: r.report_type
-  })) : []
-});
+const STORAGE_KEY = 'bazi_archives';
 
-// 前端字段 -> 数据库字段
-const mapProfileToDb = (profile: UserProfile, userId: string) => ({
-  user_id: userId,
-  name: profile.name,
-  gender: profile.gender,
-  birth_date: profile.birthDate,
-  birth_time: profile.birthTime,
-  is_solar_time: profile.isSolarTime || false,
-  province: profile.province || '',
-  city: profile.city || '',
-  longitude: profile.longitude || 0,
-  tags: profile.tags || [],
-  avatar: profile.avatar || 'default',
-  is_self: profile.isSelf || false, // 🔥 新增：写入是否为本人标记
-  updated_at: new Date().toISOString()
-});
+// 模拟 ID 生成
+const generateId = () => Math.random().toString(36).substr(2, 9);
 
-/**
- * 获取所有档案
- * 排序逻辑：本人档案置顶，其他档案按创建时间倒序
- */
 export const getArchives = async (): Promise<UserProfile[]> => {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
-
-  const { data, error } = await supabase
-    .from('archives')
-    .select('*, reports(*)') 
-    .order('is_self', { ascending: false }) // 🔥 关键修改：让"我"排在最前
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    console.error('获取档案失败:', error);
-    return [];
-  }
-  return data?.map(mapDbToProfile) || [];
+  if (typeof window === 'undefined') return [];
+  const json = localStorage.getItem(STORAGE_KEY);
+  return json ? JSON.parse(json) : [];
 };
 
 /**
- * 保存档案 (新建或更新)
+ * 保存或更新档案 (智能合并版)
  */
 export const saveArchive = async (profile: UserProfile): Promise<UserProfile[]> => {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-      alert("请先登录再保存");
-      throw new Error("未登录");
-  }
-
-  const dbData = mapProfileToDb(profile, user.id);
+  const archives = await getArchives();
   
-  // 检查是否为有效的 UUID (判断是新建还是更新)
-  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(profile.id);
+  // 🔥 核心优化：查找是否存在“日期+时间+性别”完全一致的旧档案
+  // 注意：我们不比较 name，因为用户可能第一次没填名字，第二次填了
+  const existingIndex = archives.findIndex(p => 
+      p.birthDate === profile.birthDate && 
+      p.birthTime === profile.birthTime && 
+      p.gender === profile.gender
+  );
 
-  let error;
-  if (isUUID) {
-      // 旧档案：更新
-      const { error: updateErr } = await supabase.from('archives').update(dbData).eq('id', profile.id);
-      error = updateErr;
+  if (existingIndex > -1) {
+    // === 情况 A: 找到旧档案 -> 执行“丰富/更新”逻辑 ===
+    const oldProfile = archives[existingIndex];
+
+    // 1. 名字处理：如果新名字有效且不默认，就覆盖；否则保留旧名字
+    // 假设 '某某' 或 '' 是默认空名
+    const newName = (profile.name && profile.name.trim() !== '某某' && profile.name.trim() !== '') 
+        ? profile.name 
+        : oldProfile.name;
+
+    // 2. 标签合并：把新旧标签合并并去重
+    const oldTags = oldProfile.tags || [];
+    const newTags = profile.tags || [];
+    const mergedTags = Array.from(new Set([...oldTags, ...newTags]));
+
+    // 3. 构建合并后的新对象
+    // ⚠️ 关键：必须保留 oldProfile.id，否则关联的聊天记录会丢失
+    const mergedProfile: UserProfile = {
+        ...oldProfile, // 继承旧档案的所有属性（包括 id, createdAt, aiReports）
+        
+        // 更新可能变动的基础信息 (以最新的为准)
+        name: newName,
+        isSolarTime: profile.isSolarTime, // 更新真太阳时设置
+        province: profile.province || oldProfile.province, // 新的有就用新的，没有就保留旧的
+        city: profile.city || oldProfile.city,
+        longitude: profile.longitude || oldProfile.longitude,
+        
+        // 更新合并后的标签
+        tags: mergedTags,
+        
+        // 确保 AI 报告不丢失 (如果 newProfile 里还没报告，就用旧的)
+        aiReports: oldProfile.aiReports || [] 
+    };
+
+    // 替换掉旧记录
+    archives[existingIndex] = mergedProfile;
+
   } else {
-      // 新档案：插入（不传 id，由数据库生成）
-      const { error: insertErr } = await supabase.from('archives').insert(dbData);
-      error = insertErr;
+    // === 情况 B: 没找到 -> 执行“新增”逻辑 ===
+    // 只有在完全匹配不到时，才视为新档案
+    const newEntry = { 
+        ...profile, 
+        id: generateId(), // 生成新 ID
+        createdAt: Date.now(),
+        tags: profile.tags || [],
+        aiReports: []
+    };
+    // 新增的放最前面
+    archives.unshift(newEntry);
   }
 
-  if (error) {
-    console.error('保存失败:', error);
-    alert(`保存失败！数据库返回错误：\n${error.message}`);
-    throw error;
-  }
-
-  return getArchives();
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(archives));
+  return archives;
 };
 
-export const updateArchive = async (profile: UserProfile): Promise<UserProfile[]> => saveArchive(profile);
+// --- 以下其他函数保持不变 ---
 
 export const deleteArchive = async (id: string): Promise<UserProfile[]> => {
-  await supabase.from('archives').delete().eq('id', id);
-  return getArchives();
+  const archives = await getArchives();
+  const newList = archives.filter(p => p.id !== id);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(newList));
+  // 同时清理关联的聊天记录
+  localStorage.removeItem(`chat_history_${id}`);
+  return newList;
 };
 
-export const saveAiReportToArchive = async (profileId: string, reportContent: string, type: 'bazi' | 'ziwei' = 'bazi'): Promise<UserProfile[]> => {
-  const { error } = await supabase.from('reports').insert({
-      archive_id: profileId,
-      content: reportContent,
-      report_type: type,
-      created_at: new Date().toISOString()
-    });
-  if (error) console.error('报告保存失败:', error);
-  return getArchives();
+export const updateArchive = async (updatedProfile: UserProfile): Promise<UserProfile[]> => {
+  const archives = await getArchives();
+  const index = archives.findIndex(p => p.id === updatedProfile.id);
+  if (index > -1) {
+    archives[index] = updatedProfile;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(archives));
+  }
+  return archives;
 };
 
-// --- VIP 相关逻辑 ---
+export const saveAiReportToArchive = async (
+    profileId: string, 
+    content: string, 
+    type: 'bazi' | 'ziwei'
+): Promise<UserProfile[]> => {
+    const archives = await getArchives();
+    const index = archives.findIndex(p => p.id === profileId);
+    if (index > -1) {
+        const profile = archives[index];
+        const newReport: HistoryItem = {
+            id: generateId(),
+            date: Date.now(),
+            content,
+            type
+        };
+        // 确保 aiReports 数组存在
+        const reports = profile.aiReports || [];
+        // 新报告插在最前
+        profile.aiReports = [newReport, ...reports];
+        
+        archives[index] = profile;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(archives));
+    }
+    return archives;
+};
 
-/**
- * 从云端获取 VIP 状态
- */
+// --- 模拟 VIP 接口 (保持不变) ---
 export const getVipStatus = async (): Promise<boolean> => {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return false;
-
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('is_vip')
-    .eq('id', user.id)
-    .single();
-
-  if (error || !data) return false;
-  return data.is_vip || false;
+    return localStorage.getItem('is_vip_user') === 'true';
 };
 
-/**
- * 激活 VIP 并同步到云端
- */
 export const activateVipOnCloud = async (): Promise<boolean> => {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-      alert("请先登录账号，VIP 将绑定至您的邮箱！");
-      return false;
-  }
-
-  // 使用 upsert：如果存在就更新，不存在就插入
-  const { error } = await supabase
-    .from('profiles')
-    .upsert({ 
-        id: user.id, 
-        email: user.email,
-        is_vip: true,
-        updated_at: new Date().toISOString()
-    });
-
-  if (error) {
-      console.error("激活失败:", error);
-      alert("云端同步失败，请联系客服");
-      return false;
-  }
-  return true;
+    localStorage.setItem('is_vip_user', 'true');
+    return true;
 };
