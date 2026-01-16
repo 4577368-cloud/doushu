@@ -9,7 +9,7 @@ import { calculateChart } from '../ziwei/services/astrologyService';
 const CopyButton: React.FC<{ content: string }> = ({ content }) => {
     const [copied, setCopied] = useState(false);
     const handleCopy = () => {
-        const cleanContent = content.split('|||')[0]; // 只复制正文，不复制建议
+        const cleanContent = content.split('|||')[0];
         navigator.clipboard.writeText(cleanContent).then(() => {
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
@@ -23,7 +23,7 @@ const CopyButton: React.FC<{ content: string }> = ({ content }) => {
     );
 };
 
-// 🔥 确保 Props 接收 isVip
+// 🔥 1. 这里加上 isVip: boolean
 export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVip: boolean }> = ({ chart, profile, isVip }) => {
     const [messages, setMessages] = useState<ChatMessage[]>(() => {
         if (typeof window !== 'undefined') {
@@ -58,14 +58,12 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
         } catch (e) { return "（紫微排盘计算异常）"; }
     }, [profile]);
 
-    // 自动滚动与保存
     useEffect(() => {
         const key = `chat_history_${profile.id}`;
         localStorage.setItem(key, JSON.stringify(messages));
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages, profile.id]);
 
-    // 发送逻辑
     const handleSend = async (contentOverride?: string) => {
         const msgContent = contentOverride || input;
         if (!msgContent.trim() || loading) return;
@@ -98,7 +96,7 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
                     });
                     if (parts[1]) setSuggestions(parts[1].split(/[;；]/).map(s=>s.trim()).filter(s=>s));
                 },
-                isVip // 🔥🔥🔥 关键：必须传 isVip，否则 service 会拦截
+                isVip // 🔥 2. 关键修复：必须把 isVip 传给 service
             );
 
         } catch (error: any) {
@@ -115,7 +113,6 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
 
     return (
         <div className="flex flex-col h-full bg-[#f8f8f7] relative">
-            {/* 顶部栏 */}
             <div className="bg-white/90 backdrop-blur-md border-b border-stone-200 p-2 flex justify-center z-20 sticky top-0 shadow-sm">
                 <div className="bg-stone-100 p-1 rounded-xl flex gap-1">
                     <button onClick={() => setMode('bazi')} className={`px-4 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all ${mode === 'bazi' ? 'bg-white shadow-sm text-stone-900' : 'text-stone-400'}`}><Activity size={14} /> 八字</button>
@@ -123,7 +120,6 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
                 </div>
             </div>
 
-            {/* 消息区 */}
             <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-6 custom-scrollbar">
                 {messages.map((msg, idx) => (
                     <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start items-start'}`}>
@@ -135,12 +131,10 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
                         
                         <div className="flex flex-col max-w-[85%]">
                             <div className={`p-3.5 rounded-2xl text-[15px] leading-relaxed shadow-sm transition-all ${msg.role === 'user' ? 'bg-stone-900 text-white rounded-tr-none' : 'bg-white text-stone-800 rounded-tl-none border border-stone-100'}`}>
-                                {/* 🔥 复制/选择支持：select-text 和 iOS 兼容 */}
                                 <div className="select-text cursor-text selection:bg-indigo-100 selection:text-indigo-900" style={{ WebkitUserSelect: 'text', userSelect: 'text', wordBreak: 'break-word' }}>
                                     <SmartTextRenderer content={msg.content} className={msg.role === 'user' ? 'text-white' : 'text-stone-800'} />
                                 </div>
                             </div>
-                            {/* 复制按钮 */}
                             {msg.role === 'assistant' && msg.content && <CopyButton content={msg.content} />}
                         </div>
 
@@ -151,7 +145,6 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
                 <div ref={messagesEndRef} className="h-2"/>
             </div>
 
-            {/* 输入区 */}
             <div className="p-3 bg-white border-t border-stone-200 z-20 pb-safe">
                 {suggestions.length > 0 && !loading && (
                     <div className="flex gap-2 overflow-x-auto no-scrollbar mb-3 px-1">{suggestions.map((s,i) => (<button key={i} onClick={()=>handleSend(s)} className="whitespace-nowrap px-3 py-1.5 text-xs font-bold rounded-full bg-stone-50 border border-stone-200 text-stone-600 hover:bg-stone-100 transition-colors flex items-center gap-1 active:scale-95"><HelpCircle size={12}/>{s}</button>))}</div>

@@ -285,32 +285,31 @@ const App: React.FC = () => {
               );
           
           case AppTab.CHAT:
-              // 1. VIP 拦截
-              if (!isVip) return (
-                  <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-[#f5f5f4] space-y-4">
-                      <div className="bg-stone-200 p-4 rounded-full"><Crown size={48} className="text-stone-400" /></div>
-                      <h3 className="font-bold text-lg text-stone-700">VIP 尊享功能</h3>
-                      <p className="text-sm text-stone-500">升级 VIP 解锁无限次 AI 深度对话，<br/>探索更多命理奥秘。</p>
-                      <button onClick={() => setShowVipModal(true)} className="px-6 py-3 bg-stone-900 text-amber-400 rounded-xl font-bold shadow-lg active:scale-95 transition-transform">立即解锁</button>
-                  </div>
-              );
-              // 2. 数据拦截 (没有排盘数据时)
-              if (!baziChart || !currentProfile) return (
-                  <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-[#f5f5f4] space-y-4">
-                      <div className="bg-stone-200 p-4 rounded-full"><MessageCircle size={48} className="text-stone-300" /></div>
-                      <h3 className="font-bold text-lg text-stone-700">数据缺失</h3>
-                      <p className="text-sm text-stone-500 font-medium">AI 需要命盘数据作为依据。<br/>请先进行排盘。</p>
-                      <button onClick={() => setCurrentTab(AppTab.HOME)} className="px-6 py-3 bg-stone-900 text-amber-400 rounded-xl font-bold shadow-lg active:scale-95 transition-transform flex items-center gap-2">
-                          <Compass size={18} /> 去排盘
-                      </button>
-                  </div>
-              );
-              // 3. 正常渲染 Chat (传入 profile 用于紫微计算)
-              return (
-                  <ErrorBoundary>
-                      <AiChatView chart={baziChart} profile={currentProfile} />
-                  </ErrorBoundary>
-              );
+    if (!isVip) return (
+        <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-[#f5f5f4] space-y-4">
+            <div className="bg-stone-200 p-4 rounded-full"><Crown size={48} className="text-stone-400" /></div>
+            <h3 className="font-bold text-lg text-stone-700">VIP 尊享功能</h3>
+            <p className="text-sm text-stone-500">升级 VIP 解锁无限次 AI 深度对话，<br/>探索更多命理奥秘。</p>
+            <button onClick={() => setShowVipModal(true)} className="px-6 py-3 bg-stone-900 text-amber-400 rounded-xl font-bold shadow-lg active:scale-95 transition-transform">立即解锁</button>
+        </div>
+    );
+    if (!baziChart || !currentProfile) return (
+        <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-[#f5f5f4] space-y-4">
+            <div className="bg-stone-200 p-4 rounded-full"><MessageCircle size={48} className="text-stone-300" /></div>
+            <h3 className="font-bold text-lg text-stone-700">数据缺失</h3>
+            <p className="text-sm text-stone-500 font-medium">AI 需要命盘数据作为依据。<br/>请先进行排盘。</p>
+            <button onClick={() => setCurrentTab(AppTab.HOME)} className="px-6 py-3 bg-stone-900 text-amber-400 rounded-xl font-bold shadow-lg active:scale-95 transition-transform flex items-center gap-2">
+                <Compass size={18} /> 去排盘
+            </button>
+        </div>
+    );
+    
+    // 🔥 修改这里：添加 isVip={isVip}
+    return (
+        <ErrorBoundary>
+            <AiChatView chart={baziChart} profile={currentProfile} isVip={isVip} />
+        </ErrorBoundary>
+    );
           
           case AppTab.ZIWEI:
               if (!currentProfile) {
