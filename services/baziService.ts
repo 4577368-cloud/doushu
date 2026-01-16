@@ -1,4 +1,3 @@
-
 import { BaziChart, GanZhi, LuckPillar, Pillar, UserProfile, HiddenStem, GodStrength, TrendActivation, ShenShaInteraction, BalanceAnalysis, AnnualFortune, PatternAnalysis, InterpretationResult, ModalData, XiaoYun, PillarInterpretation } from '../types';
 import { Solar, Lunar } from 'lunar-javascript';
 import { 
@@ -164,7 +163,7 @@ const createGanZhi = (gan: string, zhi: string, dayMasterGanIndex: number): GanZ
     ganElement: getElement(gan),
     zhiElement: getElement(zhi),
     hiddenStems: hiddenData.map(item => ({
-      stem: item[0], type: item[1], powerPercentage: item[2],
+      stem: item[0], type: item[1] as any, powerPercentage: item[2],
       shiShen: getShiShen(dayMasterGanIndex, getStemIndex(item[0]))
     })),
     naYin: NA_YIN[gan+zhi] || '未知',
@@ -408,8 +407,12 @@ export const calculateBazi = (profile: UserProfile): BaziChart => {
     });
   }
 
+  // 🔥🔥🔥 核心修复：计算日主五行 (防止空白页) 🔥🔥🔥
   return {
-    profileId: profile.id, gender: profile.gender, dayMaster: dm, dayMasterElement: FIVE_ELEMENTS[dm],
+    profileId: profile.id, 
+    gender: profile.gender, 
+    dayMaster: dm, 
+    dayMasterElement: FIVE_ELEMENTS[dm], // ✅ 这里确保了该字段存在
     pillars: pillars as any, mingGong: eightChar.getMingGong(), shenGong: eightChar.getShenGong(),
     taiYuan: eightChar.getTaiYuan(), taiXi: '暂缺', wuxingCounts: counts,
     luckPillars, xiaoYun, startLuckText: `起运：${yun.getStartYear()}岁${yun.getStartMonth()}月`,
@@ -646,15 +649,11 @@ export const interpretAnnualPillar = (chart: BaziChart, annualGz: GanZhi): Pilla
   const annualGan = annualGz.gan;
   
   // 1. 基础喜忌判断
-  // 简单逻辑：如果是喜用神，则取 Beneficial 建议；如果是忌神，则取 Destructive 建议。
-  // 若不在喜忌列表中（闲神），通常倾向于中性，这里暂按 Beneficial 处理但语气可减弱，
-  // 或者为了风险提示，若不是喜用均需谨慎。这里采用 "是忌神则凶，否则偏吉" 的策略。
   const isJiShen = chart.balance.jiShen.includes(element);
   
   let coreSymbolism = `流年${annualGz.gan}${annualGz.zhi}，天干${tenGod}主事。`;
   
   // 2. 结构化大师建议 (使用 constants.ts 中的新数据)
-  // 获取十神对应的文案库，若未找到则默认使用"比肩"（防崩坏）
   const tenGodData = ANNUAL_TEN_GODS_READING[tenGod] || ANNUAL_TEN_GODS_READING['比肩'];
   const adviceData = isJiShen ? tenGodData.destructive : tenGodData.beneficial;
 
@@ -764,7 +763,6 @@ export const interpretAnnualPillar = (chart: BaziChart, annualGz: GanZhi): Pilla
   return {
     pillarName: '流年',
     coreSymbolism: getGanSymbolism(annualGz.gan),
-    // Fixed: Map and cast to HiddenStem implicitly to satisfy interpretation usage or logic if needed
     hiddenDynamics: `地支藏干：${annualGz.hiddenStems.map(h => h.stem).join('')}`,
     naYinInfluence: getNaYinSymbolism(annualGz.naYin),
     lifeStageEffect: `流年行至${annualGz.lifeStage}地。`,
