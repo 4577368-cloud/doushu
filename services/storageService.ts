@@ -19,26 +19,28 @@ export const getArchives = async (): Promise<UserProfile[]> => {
 };
 
 // 2. 从云端同步
-export const syncArchivesFromCloud = async (userId: string): Promise<UserProfile[]> => {
-  console.log("☁️ [Sync] 正在拉取云端档案...");
-  let cloudError = null;
+// src/services/storageService.ts
 
+export const syncArchivesFromCloud = async (userId: string): Promise<UserProfile[]> => {
+  if (!userId) return getArchives();
+  
+  console.log("☁️ [Sync] 正在从云端拉取档案...");
   try {
     const { data, error } = await supabase
       .from('archives')
       .select('*')
-      .eq('user_id', userId)
+      .eq('user_id', userId) // 确保这里是下划线 user_id
       .order('updated_at', { ascending: false });
 
     if (error) throw error;
 
     if (data) {
-      // 严格匹配数据库字段名
+      // 🔥 核心修复：将数据库下划线字段精准映射回前端 profile 结构
       const cloudArchives: UserProfile[] = data.map((item: any) => ({
         id: item.id,
         name: item.name,
         gender: item.gender,
-        birthDate: item.data?.birthDate || '', 
+        birthDate: item.data?.birthDate || '', // 从 data JSON 中恢复日期
         birthTime: item.birth_time,
         isSolarTime: item.is_solar_time,
         province: item.province,
@@ -54,7 +56,6 @@ export const syncArchivesFromCloud = async (userId: string): Promise<UserProfile
       const localArchives = await getArchives();
       const mergedMap = new Map<string, UserProfile>();
 
-      // 智能合并：本地优先，云端覆盖
       localArchives.forEach(p => mergedMap.set(p.id, p));
       cloudArchives.forEach(p => mergedMap.set(p.id, p));
 
@@ -65,14 +66,13 @@ export const syncArchivesFromCloud = async (userId: string): Promise<UserProfile
       localStorage.setItem(STORAGE_KEY, JSON.stringify(mergedList));
       return mergedList;
     }
+    return getArchives();
   } catch (err: any) {
-    console.error("❌ [Sync] 失败:", err.message);
-    cloudError = err.message;
+    console.error("❌ [Sync] 400 错误排查：检查字段名是否与数据库完全一致", err.message);
+    const fallback = await getArchives();
+    (fallback as any)._cloudError = err.message;
+    return fallback;
   }
-
-  const fallback = await getArchives();
-  if (cloudError) (fallback as any)._cloudError = cloudError;
-  return fallback;
 };
 
 // 3. 保存或更新档案
