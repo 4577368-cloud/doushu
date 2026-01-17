@@ -11,12 +11,10 @@ export const getArchives = async (): Promise<UserProfile[]> => {
   return json ? JSON.parse(json) : [];
 };
 
-/**
- * 🔥 2. 智能同步：拉取云端 -> 合并本地 (保留离线草稿)
- */
 export const syncArchivesFromCloud = async (userId: string): Promise<UserProfile[]> => {
   console.log("☁️ [Sync] 正在从云端拉取所有数据...");
   try {
+    // 1. 获取云端最新数据
     const { data, error } = await supabase
       .from('archives')
       .select('*')
@@ -25,33 +23,52 @@ export const syncArchivesFromCloud = async (userId: string): Promise<UserProfile
 
     if (error) {
       console.error("❌ [Sync] 拉取失败:", error.message);
+      // 如果云端拉取失败，退回使用本地数据，防止白屏
       return getArchives(); 
     }
 
     if (data) {
+      // 2. 转换云端数据格式
+      // 数据库结构通常是 { id, data: { ...profile } }
       const cloudArchives: UserProfile[] = data.map((item: any) => ({
          ...item.data, 
          id: item.id || item.data.id, 
       }));
 
+      // 3. 获取当前本地数据 (这是为了防止覆盖掉还未同步的本地草稿)
       const localArchives = await getArchives();
+
+      // 4. 🔥 智能合并逻辑
+      // 使用 Map 以 ID 为 Key 进行去重
       const mergedMap = new Map<string, UserProfile>();
 
-      // 本地打底，云端覆盖 (实现多端同步)
+      // A. 先把【本地数据】放进去 (作为底板)
       localArchives.forEach(p => mergedMap.set(p.id, p));
+
+      // B. 再把【云端数据】覆盖进去 (云端为最新真理)
+      // 这样做的结果：
+      // - 两边都有：变成了云端版 (实现多端同步，以云端为准)
+      // - 只有本地有：保留 (可能是刚建的还没传上去的离线草稿)
+      // - 只有云端有：新增 (实现换设备拉取)
       cloudArchives.forEach(p => mergedMap.set(p.id, p));
 
+      // 5. 转回数组并按创建时间倒序排序
       const mergedList = Array.from(mergedMap.values()).sort((a, b) => 
         (b.createdAt || 0) - (a.createdAt || 0)
       );
 
-      console.log(`✅ [Sync] 完成。共 ${mergedList.length} 条档案。`);
+      console.log(`✅ [Sync] 同步完成。本地原有 ${localArchives.length} 条，云端拉取 ${cloudArchives.length} 条 -> 合并后共 ${mergedList.length} 条。`);
+
+      // 6. 写入本地缓存 (作为最新源)
       localStorage.setItem(STORAGE_KEY, JSON.stringify(mergedList));
       return mergedList;
     }
+    
+    // 如果云端没有任何数据 (新用户)，返回本地数据
     return getArchives();
+
   } catch (error) {
-    console.error("❌ [Sync] 异常:", error);
+    console.error("❌ [Sync] 发生异常:", error);
     return getArchives();
   }
 };
