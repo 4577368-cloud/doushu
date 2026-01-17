@@ -108,7 +108,7 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
             }
         }
         // 默认建议
-        if (messages.length <= 1) return ['我的事业运如何？', '最近财运怎么样？', '感情方面有桃花吗？'];
+        if (messages.length <= 1) return ['以当前时间启盘！', '2026年财运怎么样？', '2026年工作怎么样？'];
         return [];
     }, [messages, loading]);
 
