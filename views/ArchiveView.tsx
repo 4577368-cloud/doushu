@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Trash2, Search, User, Clock, ChevronRight, Calendar, Cloud, RefreshCw, LogOut, Crown, Check, Edit3, X, Save, Fingerprint } from 'lucide-react';
+import { Trash2, Search, User, Clock, ChevronRight, Calendar, Cloud, RefreshCw, LogOut, Crown, Edit3, X, Save, Fingerprint, Plus } from 'lucide-react';
 import { UserProfile } from '../types';
 import { deleteArchive, syncArchivesFromCloud, setArchiveAsSelf, updateArchive } from '../services/storageService';
 
@@ -13,7 +13,10 @@ interface ArchiveViewProps {
     onLogout: () => void;
 }
 
-// --- 子组件：滑动开关 (Switch) ---
+// 预设的快捷标签 (可根据需要修改)
+const PRESET_TAGS = ["客户", "朋友", "家人", "同事", "VIP", "重要"];
+
+// --- 子组件：滑动开关 ---
 const ToggleSwitch: React.FC<{ checked: boolean; onChange: () => void; disabled?: boolean }> = ({ checked, onChange, disabled }) => (
     <button 
         onClick={(e) => { e.stopPropagation(); if(!disabled) onChange(); }}
@@ -35,7 +38,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
     const [searchTerm, setSearchTerm] = useState('');
     const [syncStatus, setSyncStatus] = useState<'idle'|'loading'|'success'|'error'>('idle');
     
-    // 编辑状态管理
+    // 编辑状态
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editForm, setEditForm] = useState<{ name: string; tags: string }>({ name: '', tags: '' });
 
@@ -46,7 +49,6 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
         (p.tags && p.tags.some(t => t.includes(searchTerm)))
     );
 
-    // 删除
     const handleDelete = async (e: React.MouseEvent, id: string) => {
         e.stopPropagation();
         if (window.confirm('确定要删除这条档案吗？聊天记录也将被移除。')) {
@@ -55,13 +57,11 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
         }
     };
 
-    // 设为本人
     const handleSetSelf = async (id: string) => {
         const newList = await setArchiveAsSelf(id);
         setArchives(newList);
     };
 
-    // 同步云端
     const handleSync = async () => {
         if (!session?.user) return alert("请先登录");
         setSyncStatus('loading');
@@ -81,7 +81,18 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
     const startEdit = (e: React.MouseEvent, profile: UserProfile) => {
         e.stopPropagation();
         setEditingId(profile.id);
+        // 将标签数组转为空格分隔字符串
         setEditForm({ name: profile.name, tags: profile.tags?.join(' ') || '' });
+    };
+
+    // 添加快捷标签
+    const addTag = (e: React.MouseEvent, tag: string) => {
+        e.stopPropagation();
+        e.preventDefault();
+        // 避免重复添加
+        if (!editForm.tags.includes(tag)) {
+            setEditForm(prev => ({ ...prev, tags: (prev.tags + ' ' + tag).trim() }));
+        }
     };
 
     // 保存编辑
@@ -92,7 +103,8 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
         const updatedProfile = {
             ...profile,
             name: editForm.name,
-            tags: editForm.tags.split(' ').filter(t => t.trim() !== '')
+            // 过滤空标签
+            tags: editForm.tags.split(' ').map(t => t.trim()).filter(t => t !== '')
         };
 
         const newList = await updateArchive(updatedProfile);
@@ -109,13 +121,11 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
     return (
         <div className="h-full flex flex-col bg-[#f5f5f4]">
             
-            {/* 🔥 顶部黑金会员卡 (还原质感) */}
+            {/* 顶部黑金会员卡 */}
             <div className="bg-[#1c1917] p-6 pb-12 rounded-b-[2.5rem] shadow-2xl relative overflow-hidden shrink-0">
-                {/* 金色流光背景 */}
                 <div className="absolute top-[-50%] right-[-10%] w-[80%] h-[200%] bg-gradient-to-b from-amber-500/10 via-transparent to-transparent rotate-12 pointer-events-none blur-3xl"></div>
                 <div className="absolute bottom-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-amber-500/30 to-transparent"></div>
 
-                {/* 卡片头部 */}
                 <div className="relative flex justify-between items-start z-10">
                     <div className="flex items-center gap-4">
                         <div className="w-14 h-14 rounded-full p-[2px] bg-gradient-to-tr from-amber-300 via-amber-500 to-amber-200 shadow-lg shadow-amber-900/50">
@@ -157,7 +167,6 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                     </div>
                 </div>
 
-                {/* 数据概览与同步 */}
                 <div className="mt-8 flex justify-between items-end relative z-10">
                     <div className="flex gap-6">
                         <div>
@@ -194,7 +203,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                 </div>
             </div>
 
-            {/* 搜索框 (悬浮设计) */}
+            {/* 搜索框 */}
             <div className="px-5 -mt-6 z-20">
                 <div className="bg-white rounded-2xl shadow-lg shadow-stone-200/50 p-1.5 flex items-center border border-stone-100">
                     <Search className="ml-3 text-stone-400" size={18} />
@@ -225,30 +234,69 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                                 ${profile.isSelf ? 'border-amber-400 ring-1 ring-amber-400 bg-amber-50/10' : 'border-stone-200 hover:border-amber-200 hover:shadow-md'}
                             `}
                         >
-                            {/* 编辑模式遮罩 */}
+                            {/* 🔥 编辑模式遮罩 (修复版：垂直布局 + 快捷标签 + 底部按钮) */}
                             {editingId === profile.id ? (
-                                <div className="absolute inset-0 bg-white z-20 p-2 flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                                    <input 
-                                        autoFocus
-                                        value={editForm.name}
-                                        onChange={e => setEditForm({...editForm, name: e.target.value})}
-                                        className="flex-1 bg-stone-100 rounded-lg px-3 py-2 text-sm font-bold text-stone-800 outline-none border border-transparent focus:border-indigo-500"
-                                        placeholder="姓名"
-                                    />
-                                    <input 
-                                        value={editForm.tags}
-                                        onChange={e => setEditForm({...editForm, tags: e.target.value})}
-                                        className="flex-1 bg-stone-100 rounded-lg px-3 py-2 text-xs text-stone-600 outline-none border border-transparent focus:border-indigo-500"
-                                        placeholder="标签 (空格分隔)"
-                                    />
-                                    <button onClick={(e) => saveEdit(e, profile)} className="p-2 bg-indigo-600 text-white rounded-lg"><Save size={16}/></button>
-                                    <button onClick={cancelEdit} className="p-2 text-stone-400 hover:text-stone-600"><X size={16}/></button>
+                                <div className="absolute inset-0 bg-white z-30 flex flex-col p-4 animate-in fade-in duration-200" onClick={e => e.stopPropagation()}>
+                                    <h4 className="text-xs font-bold text-stone-400 uppercase mb-3 flex items-center gap-1">
+                                        <Edit3 size={12}/> 编辑档案
+                                    </h4>
+                                    
+                                    {/* 垂直排版：姓名 */}
+                                    <div className="mb-3">
+                                        <label className="text-[10px] text-stone-400 font-bold ml-1">姓名</label>
+                                        <input 
+                                            autoFocus
+                                            value={editForm.name}
+                                            onChange={e => setEditForm({...editForm, name: e.target.value})}
+                                            className="w-full bg-stone-50 rounded-xl px-3 py-2 text-sm font-bold text-stone-800 outline-none border border-stone-200 focus:border-indigo-500 focus:bg-white transition-colors"
+                                            placeholder="输入姓名"
+                                        />
+                                    </div>
+
+                                    {/* 垂直排版：标签 */}
+                                    <div className="flex-1">
+                                        <label className="text-[10px] text-stone-400 font-bold ml-1">标签 (空格分隔)</label>
+                                        <input 
+                                            value={editForm.tags}
+                                            onChange={e => setEditForm({...editForm, tags: e.target.value})}
+                                            className="w-full bg-stone-50 rounded-xl px-3 py-2 text-xs text-stone-600 outline-none border border-stone-200 focus:border-indigo-500 focus:bg-white transition-colors mb-2"
+                                            placeholder="例如：客户 朋友"
+                                        />
+                                        
+                                        {/* 🔥 快捷标签选区 */}
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {PRESET_TAGS.map(tag => (
+                                                <button
+                                                    key={tag}
+                                                    onClick={(e) => addTag(e, tag)}
+                                                    className="flex items-center gap-0.5 px-2 py-1 bg-stone-100 hover:bg-indigo-50 hover:text-indigo-600 border border-stone-200 rounded-md text-[10px] text-stone-500 transition-colors"
+                                                >
+                                                    <Plus size={8}/> {tag}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* 🔥 底部按钮区 (确保能点到) */}
+                                    <div className="flex gap-2 mt-2 pt-2 border-t border-stone-100">
+                                        <button 
+                                            onClick={(e) => cancelEdit(e)} 
+                                            className="flex-1 py-2 rounded-xl text-xs font-bold text-stone-500 bg-stone-100 hover:bg-stone-200 transition-colors"
+                                        >
+                                            取消
+                                        </button>
+                                        <button 
+                                            onClick={(e) => saveEdit(e, profile)} 
+                                            className="flex-1 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md transition-all active:scale-95 flex items-center justify-center gap-1"
+                                        >
+                                            <Save size={14}/> 保存修改
+                                        </button>
+                                    </div>
                                 </div>
                             ) : null}
 
                             <div className="flex justify-between items-start">
                                 <div className="flex items-start gap-3">
-                                    {/* 头像/性别图标 */}
                                     <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm ${profile.gender === 'male' ? 'bg-indigo-500' : 'bg-rose-400'}`}>
                                         {profile.name[0]}
                                     </div>
@@ -284,7 +332,6 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                                         <span className={`text-[9px] font-bold ${profile.isSelf ? 'text-amber-600' : 'text-stone-300'}`}>
                                             {profile.isSelf ? '当前账号' : '设为本人'}
                                         </span>
-                                        {/* 🔥 真正的 Switch 开关 */}
                                         <ToggleSwitch 
                                             checked={!!profile.isSelf} 
                                             onChange={() => handleSetSelf(profile.id)} 
@@ -292,7 +339,6 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                                     </div>
 
                                     <div className="flex items-center gap-1">
-                                        {/* 🔥 编辑按钮 */}
                                         <button 
                                             onClick={(e) => startEdit(e, profile)}
                                             className="p-1.5 text-stone-300 hover:text-indigo-500 hover:bg-indigo-50 rounded-full transition-colors"
