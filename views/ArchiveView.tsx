@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Trash2, Search, User, Clock, ChevronRight, Calendar, Cloud, RefreshCw, LogOut, Crown, Edit3, X, Save, Fingerprint, Plus, Tag, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Trash2, Search, User, Clock, ChevronRight, Calendar, Cloud, RefreshCw, LogOut, Crown, Edit3, X, Save, Fingerprint, Plus, Tag, Layers } from 'lucide-react';
 import { UserProfile } from '../types';
 import { deleteArchive, syncArchivesFromCloud, setArchiveAsSelf, updateArchive } from '../services/storageService';
 
@@ -15,37 +15,20 @@ interface ArchiveViewProps {
 
 const PRESET_TAGS = ["客户", "朋友", "家人", "同事", "VIP", "重要", "案例"];
 
-// --- 全局 Toast 组件 ---
-type ToastType = 'success' | 'error' | 'warning' | 'loading' | null;
-interface ToastState { show: boolean; msg: string; type: ToastType; }
-
-const Toast: React.FC<{ state: ToastState }> = ({ state }) => {
-    if (!state.show) return null;
-    
-    let bg = "bg-stone-800";
-    let icon = <Loader2 size={16} className="animate-spin text-stone-400"/>;
-    
-    if (state.type === 'success') { bg = "bg-emerald-600"; icon = <CheckCircle size={16} className="text-white"/>; }
-    if (state.type === 'error') { bg = "bg-rose-600"; icon = <AlertCircle size={16} className="text-white"/>; }
-    if (state.type === 'warning') { bg = "bg-amber-600"; icon = <Cloud size={16} className="text-white"/>; }
-
-    return (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[200] animate-in fade-in slide-in-from-bottom-4 duration-300">
-            <div className={`${bg} text-white px-4 py-3 rounded-full shadow-xl flex items-center gap-3 min-w-[200px] justify-center`}>
-                {icon}
-                <span className="text-sm font-bold tracking-wide">{state.msg}</span>
-            </div>
-        </div>
-    );
-};
-
-// --- 开关组件 ---
-const ToggleSwitch: React.FC<{ checked: boolean; onChange: () => void; disabled?: boolean }> = ({ checked, onChange, disabled }) => (
+// --- 优化的开关组件 ---
+const ToggleSwitch: React.FC<{ checked: boolean; onChange: () => void; disabled?: boolean; isDark?: boolean }> = ({ checked, onChange, disabled, isDark }) => (
     <div 
-        onClick={(e) => { e.stopPropagation(); if(!disabled) onChange(); }}
-        className={`relative w-11 h-6 rounded-full transition-colors duration-300 ease-in-out flex items-center px-0.5 cursor-pointer z-20 ${checked ? 'bg-amber-500' : 'bg-stone-300'} ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:ring-2 hover:ring-amber-200/50'}`}
+        onClick={(e) => { 
+            e.stopPropagation(); 
+            if(!disabled) onChange(); 
+        }}
+        className={`
+            relative w-10 h-5 rounded-full transition-colors duration-300 ease-in-out flex items-center px-0.5 cursor-pointer z-20
+            ${checked ? 'bg-amber-500' : (isDark ? 'bg-stone-700' : 'bg-stone-300')} 
+            ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
+        `}
     >
-        <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-300 ${checked ? 'translate-x-5' : 'translate-x-0'}`} />
+        <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300 ${checked ? 'translate-x-5' : 'translate-x-0'}`} />
     </div>
 );
 
@@ -59,73 +42,87 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
     onLogout
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
-    
-    // Toast 状态管理
-    const [toast, setToast] = useState<ToastState>({ show: false, msg: '', type: null });
-    
-    // 辅助函数：显示 Toast
-    const showToast = (msg: string, type: ToastType, duration = 2000) => {
-        setToast({ show: true, msg, type });
-        if (type !== 'loading') {
-            setTimeout(() => setToast(prev => ({ ...prev, show: false })), duration);
-        }
-    };
-
-    // 辅助函数：处理服务层返回结果
-    const handleResult = (result: any, successMsg: string) => {
-        if (result._cloudError) {
-            showToast('已存本地，云端同步失败', 'warning', 3000);
-        } else {
-            showToast(successMsg, 'success');
-        }
-        return result; // 返回纯净的数组给 setState (React 会忽略 _cloudError 属性)
-    };
-
+    const [syncStatus, setSyncStatus] = useState<'idle'|'loading'|'success'|'error'>('idle');
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editForm, setEditForm] = useState<{ name: string; tags: string }>({ name: '', tags: '' });
-    const editingProfile = editingId ? archives.find(p => p.id === editingId) : null;
 
-    const filtered = archives.filter(p => 
-        (p.name && p.name.includes(searchTerm)) || 
-        (p.birthDate && p.birthDate.includes(searchTerm)) ||
-        (p.tags && p.tags.some(t => t.includes(searchTerm)))
-    );
+    // 1. 动态计算顶部标签统计
+    const tagStats = useMemo(() => {
+        const stats: Record<string, number> = {};
+        archives.forEach(p => {
+            if (p.tags && p.tags.length > 0) {
+                p.tags.forEach(t => {
+                    if(t) stats[t] = (stats[t] || 0) + 1;
+                });
+            }
+        });
+        return Object.entries(stats).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    }, [archives]);
 
+    // 🔥 2. 核心优化：过滤 + 置顶排序
+    const displayList = useMemo(() => {
+        // 第一步：先过滤
+        const list = archives.filter(p => 
+            (p.name && p.name.includes(searchTerm)) || 
+            (p.birthDate && p.birthDate.includes(searchTerm)) ||
+            (p.tags && p.tags.some(t => t.includes(searchTerm)))
+        );
+        
+        // 第二步：再排序 (本人置顶 > 创建时间倒序)
+        return list.sort((a, b) => {
+            // 权重：本人(1) > 非本人(0)
+            const weightA = a.isSelf ? 1 : 0;
+            const weightB = b.isSelf ? 1 : 0;
+            
+            if (weightA !== weightB) {
+                return weightB - weightA; // 权重大的排前面
+            }
+            
+            // 权重相同时，按创建时间倒序 (新创建的在前面)
+            return (b.createdAt || 0) - (a.createdAt || 0);
+        });
+    }, [archives, searchTerm]);
+
+    // 操作逻辑
     const handleDelete = async (e: React.MouseEvent, id: string) => {
         e.stopPropagation();
-        if (window.confirm('确定要删除这条档案吗？聊天记录也将被移除。')) {
-            showToast('正在删除...', 'loading');
-            try {
-                const newList = await deleteArchive(id);
-                setArchives(handleResult(newList, '删除成功'));
-            } catch (e) {
-                showToast('删除失败', 'error');
-            }
+        if (window.confirm('确定要删除这条档案吗？')) {
+            const newList = await deleteArchive(id);
+            setArchives(newList);
         }
     };
 
     const handleSetSelf = async (id: string) => {
-        showToast('正在更新状态...', 'loading');
+        // 乐观更新 UI (立即看到效果)
+        const optimisticList = archives.map(p => ({
+            ...p,
+            isSelf: p.id === id
+        }));
+        setArchives(optimisticList);
+
+        // 后台保存
         try {
-            const newList = await setArchiveAsSelf(id);
-            setArchives(handleResult(newList, '已设为本人命盘'));
+            await setArchiveAsSelf(id);
         } catch (e) {
-            showToast('设置失败', 'error');
+            console.error(e);
         }
     };
 
     const handleSync = async () => {
         if (!session?.user) return alert("请先登录");
-        showToast('正在同步云端...', 'loading');
+        setSyncStatus('loading');
         try {
             const newList = await syncArchivesFromCloud(session.user.id);
-            setArchives(handleResult(newList, '云端同步完成'));
+            setArchives(newList);
+            setSyncStatus('success');
+            setTimeout(() => setSyncStatus('idle'), 2000); 
         } catch (e) {
-            console.error(e);
-            showToast('同步失败，请检查网络', 'error');
+            setSyncStatus('error');
+            setTimeout(() => setSyncStatus('idle'), 3000);
         }
     };
 
+    // 编辑逻辑...
     const startEdit = (e: React.MouseEvent, profile: UserProfile) => {
         e.stopPropagation();
         setEditingId(profile.id);
@@ -133,50 +130,37 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
     };
 
     const addTag = (e: React.MouseEvent, tag: string) => {
-        e.preventDefault();
-        e.stopPropagation();
+        e.preventDefault(); e.stopPropagation();
         const currentTags = editForm.tags.split(' ').map(t => t.trim()).filter(t => t);
         if (!currentTags.includes(tag)) {
-            const newTags = [...currentTags, tag].join(' ');
-            setEditForm(prev => ({ ...prev, tags: newTags }));
+            setEditForm(prev => ({ ...prev, tags: [...currentTags, tag].join(' ') }));
         }
     };
 
     const saveEdit = async () => {
+        const editingProfile = archives.find(p => p.id === editingId);
         if (!editingProfile) return;
         if (!editForm.name.trim()) return alert("姓名不能为空");
 
-        showToast('正在保存...', 'loading');
         const updatedProfile = {
             ...editingProfile,
             name: editForm.name,
             tags: editForm.tags.split(' ').map(t => t.trim()).filter(t => t !== '')
         };
 
-        try {
-            const newList = await updateArchive(updatedProfile);
-            setArchives(handleResult(newList, '档案修改已保存'));
-            setEditingId(null);
-        } catch (e) {
-            showToast('保存失败', 'error');
-        }
-    };
-
-    const cancelEdit = () => {
+        const newList = await updateArchive(updatedProfile);
+        setArchives(newList);
         setEditingId(null);
     };
 
     return (
         <div className="h-full flex flex-col bg-[#f5f5f4] relative">
             
-            {/* 🔥 全局 Toast 挂载点 */}
-            <Toast state={toast} />
-
             {/* 顶部黑金会员卡 */}
-            <div className="bg-[#1c1917] p-6 pb-12 rounded-b-[2.5rem] shadow-2xl relative overflow-hidden shrink-0">
+            <div className="bg-[#1c1917] p-6 pb-12 rounded-b-[2.5rem] shadow-2xl relative overflow-hidden shrink-0 z-10">
                 <div className="absolute top-[-50%] right-[-10%] w-[80%] h-[200%] bg-gradient-to-b from-amber-500/10 via-transparent to-transparent rotate-12 pointer-events-none blur-3xl"></div>
-                <div className="absolute bottom-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-amber-500/30 to-transparent"></div>
-
+                
+                {/* 头部用户信息 */}
                 <div className="relative flex justify-between items-start z-10">
                     <div className="flex items-center gap-4">
                         <div className="w-14 h-14 rounded-full p-[2px] bg-gradient-to-tr from-amber-300 via-amber-500 to-amber-200 shadow-lg shadow-amber-900/50">
@@ -195,49 +179,57 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                                     </span>
                                 ) : (
                                     <span onClick={onVipClick} className="flex items-center gap-1 bg-stone-800 text-stone-500 border border-stone-700 text-[10px] font-bold px-2 py-0.5 rounded-full cursor-pointer hover:text-stone-300">
-                                        普通用户
+                                        普通
                                     </span>
                                 )}
                             </div>
                             <p className="text-stone-500 text-xs mt-1 font-medium tracking-wide">
-                                {session ? `ID: ${session.user.id.slice(0,8).toUpperCase()}` : '未登录 - 数据仅存储在本地'}
+                                {session ? `ID: ${session.user.id.slice(0,8).toUpperCase()}` : '离线模式'}
                             </p>
                         </div>
                     </div>
-                    
-                    <div className="flex flex-col items-end gap-2">
-                        {session ? (
-                            <button onClick={onLogout} className="text-[10px] text-stone-500 hover:text-rose-400 flex items-center gap-1 px-2 py-1 transition-colors">
-                                <LogOut size={10}/> 退出
-                            </button>
-                        ) : (
-                            <button className="text-xs bg-amber-500 text-[#1c1917] px-5 py-1.5 rounded-full font-bold shadow-lg shadow-amber-900/50 active:scale-95 hover:bg-amber-400 transition-colors">
-                                立即登录
-                            </button>
-                        )}
-                    </div>
+                    {session ? (
+                        <button onClick={onLogout} className="text-[10px] text-stone-500 hover:text-rose-400 flex items-center gap-1 px-2 py-1"><LogOut size={10}/> 退出</button>
+                    ) : (
+                        <button className="text-xs bg-amber-500 text-[#1c1917] px-4 py-1 rounded-full font-bold">登录</button>
+                    )}
                 </div>
 
-                <div className="mt-8 flex justify-between items-end relative z-10">
-                    <div className="flex gap-6">
-                        <div>
-                            <div className="text-2xl font-black text-stone-200 font-serif">{archives.length}</div>
-                            <div className="text-[9px] text-stone-500 uppercase tracking-widest mt-0.5">已存档案</div>
-                        </div>
-                        <div className="w-px h-8 bg-stone-800"></div>
-                        <div>
-                            <div className="text-2xl font-black text-amber-500 font-serif">{archives.filter(a=>a.tags?.includes('客户')).length}</div>
-                            <div className="text-[9px] text-stone-500 uppercase tracking-widest mt-0.5">客户</div>
-                        </div>
+                {/* 动态统计栏 */}
+                <div className="mt-8 flex items-end gap-6 relative z-10 overflow-x-auto no-scrollbar pb-1">
+                    <div>
+                        <div className="text-2xl font-black text-stone-200 font-serif leading-none">{archives.length}</div>
+                        <div className="text-[9px] text-stone-500 uppercase tracking-widest mt-1.5">总档案</div>
                     </div>
+                    <div className="w-px h-6 bg-stone-800 mb-1"></div>
+
+                    {tagStats.length > 0 ? (
+                        tagStats.map(([tag, count], idx) => (
+                            <div key={tag} className="flex flex-col animate-in fade-in slide-in-from-right-4 duration-500" style={{animationDelay: `${idx * 100}ms`}}>
+                                <div className="text-2xl font-black text-amber-500 font-serif leading-none">{count}</div>
+                                <div className="text-[9px] text-stone-500 uppercase tracking-widest mt-1.5 truncate max-w-[4em]">{tag}</div>
+                            </div>
+                        ))
+                    ) : (
+                        <div className="flex flex-col opacity-50">
+                            <div className="text-2xl font-black text-stone-600 font-serif leading-none">-</div>
+                            <div className="text-[9px] text-stone-600 uppercase tracking-widest mt-1.5">无标签</div>
+                        </div>
+                    )}
+
+                    <div className="flex-1"></div>
 
                     {session && (
                         <button 
                             onClick={handleSync}
-                            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg border bg-stone-800 border-stone-700 text-stone-400 hover:text-stone-200 hover:border-stone-500 active:scale-95"
+                            disabled={syncStatus === 'loading' || syncStatus === 'success'}
+                            className={`
+                                flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all shadow-lg border shrink-0 mb-1
+                                ${syncStatus === 'success' ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400' : 'bg-stone-800 border-stone-700 text-stone-400 hover:text-stone-200'}
+                            `}
                         >
-                            <RefreshCw size={12} className={toast.type === 'loading' ? 'animate-spin' : ''} />
-                            云端同步
+                            <RefreshCw size={10} className={syncStatus === 'loading' ? 'animate-spin' : ''} />
+                            {syncStatus === 'loading' ? '同步中' : syncStatus === 'success' ? '已同步' : '云同步'}
                         </button>
                     )}
                 </div>
@@ -259,37 +251,42 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
 
             {/* 列表内容区 */}
             <div className="flex-1 overflow-y-auto p-4 pt-4 space-y-3 custom-scrollbar">
-                {filtered.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-40 text-stone-400 space-y-2 mt-8">
-                        <Search size={32} className="opacity-10" />
-                        <p className="text-xs opacity-50">暂无相关档案</p>
-                    </div>
-                ) : (
-                    filtered.map(profile => (
+                {displayList.map((profile, index) => {
+                    const isSelf = profile.isSelf;
+                    return (
                         <div 
                             key={profile.id} 
                             onClick={() => onSelect(profile)}
                             className={`
-                                group relative bg-white border rounded-2xl p-4 shadow-sm active:scale-[0.99] transition-all cursor-pointer overflow-hidden
-                                ${profile.isSelf ? 'border-amber-400 ring-1 ring-amber-400 bg-amber-50/10' : 'border-stone-200 hover:border-amber-200 hover:shadow-md'}
+                                group relative border rounded-2xl p-4 shadow-sm active:scale-[0.99] transition-all duration-500 cursor-pointer overflow-hidden
+                                ${isSelf 
+                                    ? 'bg-[#1c1917] border-amber-500/30 shadow-lg shadow-amber-900/20 ring-1 ring-amber-500/20 order-first' // 黑金样式
+                                    : 'bg-white border-stone-200 hover:border-amber-200 hover:shadow-md' // 普通样式
+                                }
                             `}
+                            // 为置顶添加动画效果
+                            style={isSelf ? { animation: 'fade-in 0.5s ease-out' } : {}}
                         >
-                            <div className="flex justify-between items-start">
+                            {isSelf && (
+                                <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-3xl pointer-events-none -translate-y-1/2 translate-x-1/2"></div>
+                            )}
+
+                            <div className="flex justify-between items-start relative z-10">
                                 <div className="flex items-start gap-3">
-                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm ${profile.gender === 'male' ? 'bg-indigo-500' : 'bg-rose-400'}`}>
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold shadow-sm ${isSelf ? 'bg-gradient-to-br from-amber-300 to-amber-600 text-[#1c1917]' : (profile.gender === 'male' ? 'bg-indigo-500 text-white' : 'bg-rose-400 text-white')}`}>
                                         {profile.name[0]}
                                     </div>
                                     
                                     <div>
                                         <div className="flex items-center gap-2">
-                                            <h3 className="font-black text-stone-800 text-[15px]">{profile.name}</h3>
-                                            {profile.isSelf && (
-                                                <span className="flex items-center gap-0.5 text-[9px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full border border-amber-200">
-                                                    <Fingerprint size={9}/> 本人
+                                            <h3 className={`font-black text-[15px] ${isSelf ? 'text-amber-50' : 'text-stone-800'}`}>{profile.name}</h3>
+                                            {isSelf && (
+                                                <span className="flex items-center gap-0.5 text-[9px] font-bold bg-amber-500 text-[#1c1917] px-1.5 py-0.5 rounded-full shadow-sm">
+                                                    <Crown size={9} fill="currentColor"/> 本人
                                                 </span>
                                             )}
                                         </div>
-                                        <div className="flex items-center gap-3 text-xs text-stone-500 mt-1">
+                                        <div className={`flex items-center gap-3 text-xs mt-1 ${isSelf ? 'text-stone-400' : 'text-stone-500'}`}>
                                             <span className="flex items-center gap-1"><Calendar size={10}/> {profile.birthDate}</span>
                                             <span className="flex items-center gap-1"><Clock size={10}/> {profile.birthTime}</span>
                                         </div>
@@ -297,7 +294,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                                         {profile.tags && profile.tags.length > 0 && (
                                             <div className="flex gap-1 mt-2">
                                                 {profile.tags.map((tag, i) => (
-                                                    <span key={i} className="text-[9px] bg-stone-100 text-stone-500 px-1.5 py-0.5 rounded-md">
+                                                    <span key={i} className={`text-[9px] px-1.5 py-0.5 rounded-md ${isSelf ? 'bg-stone-800 text-stone-400 border border-stone-700' : 'bg-stone-100 text-stone-500'}`}>
                                                         #{tag}
                                                     </span>
                                                 ))}
@@ -308,110 +305,66 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
 
                                 <div className="flex flex-col items-end gap-3">
                                     <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                                        <span className={`text-[9px] font-bold ${profile.isSelf ? 'text-amber-600' : 'text-stone-300'}`}>
-                                            {profile.isSelf ? '当前账号' : '设为本人'}
+                                        <span className={`text-[9px] font-bold ${isSelf ? 'text-amber-500' : 'text-stone-300'}`}>
+                                            {isSelf ? '当前账号' : '设为本人'}
                                         </span>
                                         <ToggleSwitch 
-                                            checked={!!profile.isSelf} 
+                                            checked={!!isSelf} 
                                             onChange={() => handleSetSelf(profile.id)} 
+                                            isDark={isSelf} 
                                         />
                                     </div>
 
                                     <div className="flex items-center gap-1">
                                         <button 
                                             onClick={(e) => startEdit(e, profile)}
-                                            className="p-1.5 text-stone-300 hover:text-amber-500 hover:bg-amber-50 rounded-full transition-colors z-10"
-                                            title="编辑资料"
+                                            className={`p-1.5 rounded-full transition-colors ${isSelf ? 'text-stone-500 hover:text-amber-400 hover:bg-stone-800' : 'text-stone-300 hover:text-indigo-500 hover:bg-indigo-50'}`}
                                         >
                                             <Edit3 size={14} />
                                         </button>
                                         <button 
                                             onClick={(e) => handleDelete(e, profile.id)}
-                                            className="p-1.5 text-stone-300 hover:text-rose-500 hover:bg-rose-50 rounded-full transition-colors z-10"
-                                            title="删除档案"
+                                            className={`p-1.5 rounded-full transition-colors ${isSelf ? 'text-stone-500 hover:text-rose-400 hover:bg-stone-800' : 'text-stone-300 hover:text-rose-500 hover:bg-rose-50'}`}
                                         >
                                             <Trash2 size={14} />
                                         </button>
-                                        <ChevronRight size={16} className="text-stone-200" />
+                                        <ChevronRight size={16} className={isSelf ? 'text-stone-600' : 'text-stone-200'} />
                                     </div>
                                 </div>
                             </div>
                         </div>
-                    ))
-                )}
+                    );
+                })}
             </div>
 
-            {/* 🔥 全局编辑弹窗 (黑金风格版) */}
-            {editingId && editingProfile && (
+            {/* 全局编辑弹窗 */}
+            {editingId && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
-                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={cancelEdit}></div>
-                    
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setEditingId(null)}></div>
                     <div className="relative bg-[#1c1917] w-full max-w-sm rounded-[2rem] shadow-2xl p-6 space-y-6 animate-in zoom-in-95 duration-200 border border-stone-800" onClick={e => e.stopPropagation()}>
-                        
                         <div className="flex justify-between items-center border-b border-stone-800 pb-4">
-                            <h3 className="font-black text-stone-100 text-lg flex items-center gap-2">
-                                <div className="p-2 bg-stone-800 rounded-full text-amber-500">
-                                    <Edit3 size={18}/>
-                                </div>
-                                编辑档案
-                            </h3>
-                            <button onClick={cancelEdit} className="p-2 text-stone-500 hover:text-stone-300 rounded-full hover:bg-stone-800 transition-colors">
-                                <X size={20}/>
-                            </button>
+                            <h3 className="font-black text-stone-100 text-lg flex items-center gap-2"><Edit3 size={18} className="text-amber-500"/> 编辑档案</h3>
+                            <button onClick={() => setEditingId(null)} className="p-2 text-stone-500 hover:text-stone-300"><X size={20}/></button>
                         </div>
-
-                        <div className="space-y-5">
-                            <div className="space-y-2">
+                        <div className="space-y-4">
+                            <div>
                                 <label className="text-xs font-bold text-stone-500 ml-1">姓名</label>
-                                <input 
-                                    autoFocus
-                                    value={editForm.name}
-                                    onChange={e => setEditForm({...editForm, name: e.target.value})}
-                                    className="w-full bg-stone-900/50 rounded-xl px-4 py-3 text-sm font-bold text-stone-200 outline-none border border-stone-800 focus:border-amber-500/50 focus:bg-stone-900 focus:ring-4 focus:ring-amber-500/10 transition-all placeholder:text-stone-600"
-                                    placeholder="请输入姓名"
-                                />
+                                <input autoFocus value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} className="w-full bg-stone-900/50 rounded-xl px-4 py-3 text-sm font-bold text-stone-200 outline-none border border-stone-800 focus:border-amber-500/50 transition-all"/>
                             </div>
-
-                            <div className="space-y-2">
-                                <label className="text-xs font-bold text-stone-500 ml-1 flex items-center gap-1">
-                                    <Tag size={12}/> 标签 (空格分隔)
-                                </label>
-                                <input 
-                                    value={editForm.tags}
-                                    onChange={e => setEditForm({...editForm, tags: e.target.value})}
-                                    className="w-full bg-stone-900/50 rounded-xl px-4 py-3 text-sm text-stone-300 outline-none border border-stone-800 focus:border-amber-500/50 focus:bg-stone-900 focus:ring-4 focus:ring-amber-500/10 transition-all placeholder:text-stone-600"
-                                    placeholder="例如：客户 朋友"
-                                />
-                                
+                            <div>
+                                <label className="text-xs font-bold text-stone-500 ml-1 flex items-center gap-1"><Tag size={12}/> 标签</label>
+                                <input value={editForm.tags} onChange={e => setEditForm({...editForm, tags: e.target.value})} className="w-full bg-stone-900/50 rounded-xl px-4 py-3 text-sm text-stone-300 outline-none border border-stone-800 focus:border-amber-500/50 transition-all"/>
                                 <div className="flex flex-wrap gap-2 mt-3">
                                     {PRESET_TAGS.map(tag => (
-                                        <button
-                                            key={tag}
-                                            onClick={(e) => addTag(e, tag)}
-                                            className="flex items-center gap-1 px-3 py-1.5 bg-stone-800 hover:bg-amber-500 hover:text-[#1c1917] border border-stone-700 hover:border-amber-400 rounded-lg text-xs text-stone-400 font-medium transition-all active:scale-95"
-                                        >
-                                            <Plus size={10}/> {tag}
-                                        </button>
+                                        <button key={tag} onClick={(e) => addTag(e, tag)} className="flex items-center gap-1 px-3 py-1.5 bg-stone-800 hover:bg-amber-500 hover:text-[#1c1917] border border-stone-700 hover:border-amber-400 rounded-lg text-xs text-stone-400 font-medium transition-all active:scale-95"><Plus size={10}/> {tag}</button>
                                     ))}
                                 </div>
                             </div>
                         </div>
-
                         <div className="flex gap-3 pt-2">
-                            <button 
-                                onClick={cancelEdit} 
-                                className="flex-1 py-3.5 rounded-xl text-sm font-bold text-stone-400 bg-stone-800 hover:bg-stone-700 transition-colors"
-                            >
-                                取消
-                            </button>
-                            <button 
-                                onClick={saveEdit} 
-                                className="flex-1 py-3.5 rounded-xl text-sm font-bold text-[#1c1917] bg-amber-500 hover:bg-amber-400 shadow-lg shadow-amber-900/20 transition-all active:scale-95 flex items-center justify-center gap-2"
-                            >
-                                <Save size={16}/> 保存修改
-                            </button>
+                            <button onClick={() => setEditingId(null)} className="flex-1 py-3.5 rounded-xl text-sm font-bold text-stone-400 bg-stone-800 hover:bg-stone-700">取消</button>
+                            <button onClick={saveEdit} className="flex-1 py-3.5 rounded-xl text-sm font-bold text-[#1c1917] bg-amber-500 hover:bg-amber-400 shadow-lg shadow-amber-900/20">保存修改</button>
                         </div>
-
                     </div>
                 </div>
             )}
