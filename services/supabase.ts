@@ -28,7 +28,8 @@ if (!rawUrl || !rawKey) {
 // 🛡️ 防崩溃处理：
 // 如果没有 URL，我们提供一个假的 URL，防止 createClient 直接报错导致白屏。
 // 这样你至少能看到页面，虽然数据加载会失败。
-const supabaseUrl = rawUrl || 'https://placeholder.supabase.co';
-const supabaseAnonKey = rawKey || 'placeholder-key';
+const supabaseUrl = rawUrl || 'https://zceuxgvrykvdywdmyskh.supabase.co';
+const supabaseAnonKey = rawKey || 'sb_publishable_rKuZgzvvue4yfXHT1ymEzw_0DdoCrgv';
+
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
