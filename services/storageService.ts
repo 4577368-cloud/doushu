@@ -3,7 +3,7 @@ import { supabase } from './supabase';
 
 const STORAGE_KEY = 'bazi_archives';
 
-// 使用原生 API 生成唯一 ID，确保云端主键不冲突
+// 安全生成唯一 ID
 const generateId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -11,16 +11,14 @@ const generateId = () => {
   return Math.random().toString(36).substr(2, 9);
 };
 
+// 1. 获取本地缓存
 export const getArchives = async (): Promise<UserProfile[]> => {
   if (typeof window === 'undefined') return [];
   const json = localStorage.getItem(STORAGE_KEY);
   return json ? JSON.parse(json) : [];
 };
 
-/**
- * 🔥 核心修复：账号隔离同步
- * 逻辑：只拉取属于当前 user_id 的数据，拉取前不清理本地（由 App.tsx 登录时处理清理）
- */
+// 2. 从云端同步
 export const syncArchivesFromCloud = async (userId: string): Promise<UserProfile[]> => {
   console.log("☁️ [Sync] 正在拉取云端档案...");
   let cloudError = null;
@@ -35,12 +33,12 @@ export const syncArchivesFromCloud = async (userId: string): Promise<UserProfile
     if (error) throw error;
 
     if (data) {
-      // 适配您的数据库字段结构
+      // 严格匹配数据库字段名
       const cloudArchives: UserProfile[] = data.map((item: any) => ({
         id: item.id,
         name: item.name,
         gender: item.gender,
-        birthDate: item.birth_date || item.data?.birthDate, // 兼容旧数据
+        birthDate: item.data?.birthDate || '', 
         birthTime: item.birth_time,
         isSolarTime: item.is_solar_time,
         province: item.province,
@@ -50,14 +48,13 @@ export const syncArchivesFromCloud = async (userId: string): Promise<UserProfile
         createdAt: item.created_at ? new Date(item.created_at).getTime() : Date.now(),
         isSelf: item.is_self,
         avatar: item.avatar,
-        // 如果有 aiReports 存储在 data 字段中
         aiReports: item.data?.aiReports || []
       }));
 
       const localArchives = await getArchives();
       const mergedMap = new Map<string, UserProfile>();
 
-      // 智能合并：本地离线数据优先，云端已同步数据覆盖更新
+      // 智能合并：本地优先，云端覆盖
       localArchives.forEach(p => mergedMap.set(p.id, p));
       cloudArchives.forEach(p => mergedMap.set(p.id, p));
 
@@ -78,9 +75,7 @@ export const syncArchivesFromCloud = async (userId: string): Promise<UserProfile
   return fallback;
 };
 
-/**
- * 🔥 核心修复：精准字段推送
- */
+// 3. 保存或更新档案
 export const saveArchive = async (profile: UserProfile): Promise<UserProfile[]> => {
   let archives = await getArchives();
   const existingIndex = archives.findIndex(p => p.id === profile.id);
@@ -95,12 +90,11 @@ export const saveArchive = async (profile: UserProfile): Promise<UserProfile[]> 
     archives.unshift(finalProfile);
   }
 
-  // 1. 本地落盘
   localStorage.setItem(STORAGE_KEY, JSON.stringify(archives));
 
-  // 2. 推送云端
   const { data: { session } } = await supabase.auth.getSession();
   if (session?.user) {
+    // 构造适配数据库字段的 Payload
     const payload = {
       id: finalProfile.id,
       user_id: session.user.id,
@@ -115,7 +109,6 @@ export const saveArchive = async (profile: UserProfile): Promise<UserProfile[]> 
       is_self: finalProfile.isSelf || false,
       avatar: finalProfile.avatar || '',
       updated_at: new Date().toISOString(),
-      // 将完整对象存在 data 字段中作为备份和 AI 报告存储
       data: finalProfile 
     };
 
@@ -126,9 +119,7 @@ export const saveArchive = async (profile: UserProfile): Promise<UserProfile[]> 
   return archives;
 };
 
-/**
- * 🔥 核心修复：本人状态切换
- */
+// 4. 设为本人
 export const setArchiveAsSelf = async (id: string): Promise<UserProfile[]> => {
   let archives = await getArchives();
   const oldSelf = archives.find(p => p.isSelf);
@@ -147,10 +138,12 @@ export const setArchiveAsSelf = async (id: string): Promise<UserProfile[]> => {
   return archives;
 };
 
+// 5. 删除档案
 export const deleteArchive = async (id: string): Promise<UserProfile[]> => {
   const archives = await getArchives();
   const newList = archives.filter(p => p.id !== id);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(newList));
+  localStorage.removeItem(`chat_history_${id}`);
 
   const { data: { session } } = await supabase.auth.getSession();
   if (session?.user) {
@@ -171,4 +164,14 @@ export const saveAiReportToArchive = async (pid: string, content: string, type: 
     return saveArchive(p);
   }
   return archives;
+};
+
+// VIP 状态管理
+export const getVipStatus = async (): Promise<boolean> => {
+  return localStorage.getItem('is_vip_user') === 'true';
+};
+
+export const activateVipOnCloud = async (): Promise<boolean> => {
+  localStorage.setItem('is_vip_user', 'true');
+  return true;
 };

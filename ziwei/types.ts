@@ -169,3 +169,19 @@ export interface BaziReport {
   // 新版结构化模式
   sections?: BaziReportSection[];
 }
+/**
+ * 获取 VIP 状态
+ */
+export const getVipStatus = async (): Promise<boolean> => {
+  if (typeof window === 'undefined') return false;
+  return localStorage.getItem('is_vip_user') === 'true';
+};
+
+/**
+ * 激活云端 VIP（目前先同步本地状态）
+ */
+export const activateVipOnCloud = async (): Promise<boolean> => {
+  if (typeof window === 'undefined') return false;
+  localStorage.setItem('is_vip_user', 'true');
+  return true;
+};
