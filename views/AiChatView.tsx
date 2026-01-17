@@ -60,17 +60,18 @@ const InChatSuggestions: React.FC<{ rawContent: string; onSend: (text: string) =
 
 export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVip: boolean }> = ({ chart, profile, isVip }) => {
     
-    // --- 1. 时间计算 ---
+    // --- 1. 时间计算 (修复版：包含时辰) ---
     const timeContext = useMemo(() => {
         try {
             const now = new Date();
             const solar = Solar.fromDate(now);
             const lunar = solar.getLunar();
             const eightChar = lunar.getEightChar();
-            eightChar.setSect(1); 
+            eightChar.setSect(1); // 设定流派 (1=晚子时算明天)
             
-            const gregorianStr = `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日`;
-            const ganzhiStr = `${eightChar.getYearGan()}${eightChar.getYearZhi()}年 ${eightChar.getMonthGan()}${eightChar.getMonthZhi()}月 ${eightChar.getDayGan()}${eightChar.getDayZhi()}日`;
+            // 补全：公历加小时，干支加时柱
+            const gregorianStr = `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日 ${now.getHours()}时`;
+            const ganzhiStr = `${eightChar.getYearGan()}${eightChar.getYearZhi()}年 ${eightChar.getMonthGan()}${eightChar.getMonthZhi()}月 ${eightChar.getDayGan()}${eightChar.getDayZhi()}日 ${eightChar.getTimeGan()}${eightChar.getTimeZhi()}时`;
             
             return `公历${gregorianStr} (农历/干支：${ganzhiStr})`;
         } catch (e) { return "时间获取失败"; }
@@ -97,9 +98,8 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
     
-    // 🔥 建议状态：不再依赖流式回调，而是直接通过 messages 计算属性得出
     const activeSuggestions = useMemo(() => {
-        if (loading) return []; // 加载时不显示建议
+        if (loading) return []; 
         const lastMsg = messages[messages.length - 1];
         if (lastMsg && lastMsg.role === 'assistant') {
             const parts = lastMsg.content.split('|||');
@@ -107,8 +107,7 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
                 return parts[1].split(/[;；]/).map(s => s.trim()).filter(s => s);
             }
         }
-        // 默认建议
-        if (messages.length <= 1) return ['以当前时间启盘！', '2026年财运怎么样？', '2026年工作怎么样？'];
+        if (messages.length <= 1) return ['我的事业运如何？', '最近财运怎么样？', '感情方面有桃花吗？'];
         return [];
     }, [messages, loading]);
 
@@ -212,8 +211,6 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
                 mode, 
                 (chunk) => {
                     fullText += chunk;
-                    // 流式更新消息内容，但不在这里手动 setSuggestions
-                    // 让 useMemo 根据 fullText 自动推导 suggestions
                     setMessages(prev => {
                         const newMsgs = [...prev];
                         const last = newMsgs[newMsgs.length - 1];
@@ -265,16 +262,12 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
                         <div className="flex flex-col max-w-[85%]">
                             <div className={`p-3.5 rounded-2xl text-[15px] leading-relaxed shadow-sm transition-all ${msg.role === 'user' ? 'bg-stone-900 text-white rounded-tr-none' : 'bg-white text-stone-800 rounded-tl-none border border-stone-100'}`}>
                                 <div className="select-text cursor-text selection:bg-indigo-100 selection:text-indigo-900" style={{ WebkitUserSelect: 'text', userSelect: 'text', wordBreak: 'break-word' }}>
-                                    {/* 显示正文 (去掉 ||| 后面的内容) */}
                                     <SmartTextRenderer content={msg.content.split('|||')[0]} className={msg.role === 'user' ? 'text-white' : 'text-stone-800'} />
                                 </div>
-                                
-                                {/* 🔥🔥🔥 核心修复：气泡内部渲染可点击建议 🔥🔥🔥 */}
                                 {msg.role === 'assistant' && !loading && (
                                     <InChatSuggestions rawContent={msg.content} onSend={handleSend} />
                                 )}
                             </div>
-                            {/* 复制按钮只复制正文 */}
                             {msg.role === 'assistant' && msg.content && <CopyButton content={msg.content} />}
                         </div>
                         {msg.role === 'user' && <div className="w-8 h-8 rounded-full bg-stone-200 flex items-center justify-center shrink-0 ml-2 mt-1"><User size={16} className="text-stone-500"/></div>}
@@ -296,7 +289,6 @@ export const AiChatView: React.FC<{ chart: BaziChart; profile: UserProfile; isVi
 
             {/* 底部输入区 */}
             <div className="p-3 bg-white border-t border-stone-200 z-20 pb-safe">
-                {/* 底部依然保留建议栏，但数据源与气泡内一致，确保同步 */}
                 {activeSuggestions.length > 0 && !loading && (
                     <div className="flex gap-2 overflow-x-auto no-scrollbar mb-3 px-1">
                         {activeSuggestions.map((s,i) => (<button key={i} onClick={()=>handleSend(s)} className="whitespace-nowrap px-3 py-1.5 text-xs font-bold rounded-full bg-stone-50 border border-stone-200 text-stone-600 hover:bg-stone-100 transition-colors flex items-center gap-1 active:scale-95"><HelpCircle size={12}/>{s}</button>))}
