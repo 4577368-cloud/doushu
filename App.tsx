@@ -210,7 +210,26 @@ const App: React.FC = () => {
       if (!session) {
           // 这里不做拦截，允许访客保存到本地
       }
-
+useEffect(() => {
+  const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    setSession(session);
+    
+    if (event === 'SIGNED_IN' && session?.user) {
+      // 🔥 关键修复：登录时先清空本地旧缓存，确保数据纯净
+      localStorage.removeItem('bazi_archives'); 
+      console.log("检测到登录，已清理本地旧缓存，准备同步新账号数据...");
+      
+      const newList = await syncArchivesFromCloud(session.user.id);
+      setArchives(newList);
+    } else if (event === 'SIGNED_OUT') {
+      // 🔥 关键修复：退出登录时立即清空本地档案，防止数据泄露给下一个使用者
+      localStorage.removeItem('bazi_archives');
+      setArchives([]);
+      console.log("已退出登录，清空本地数据");
+    }
+  });
+  return () => subscription.unsubscribe();
+}, []);
       setIsGlobalSaving(true);
       try {
           const updatedList = await saveArchive(currentProfile);
