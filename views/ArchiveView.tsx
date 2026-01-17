@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Trash2, Search, User, Clock, ChevronRight, Calendar, Cloud, RefreshCw, LogOut, Crown, Edit3, X, Save, Fingerprint, Plus, Tag } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Trash2, Search, User, Clock, ChevronRight, Calendar, Cloud, RefreshCw, LogOut, Crown, Edit3, X, Save, Fingerprint, Plus, Tag, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 import { UserProfile } from '../types';
 import { deleteArchive, syncArchivesFromCloud, setArchiveAsSelf, updateArchive } from '../services/storageService';
 
@@ -15,13 +15,34 @@ interface ArchiveViewProps {
 
 const PRESET_TAGS = ["客户", "朋友", "家人", "同事", "VIP", "重要", "案例"];
 
-// --- 子组件：滑动开关 (增大热区，优化手感) ---
+// --- 全局 Toast 组件 ---
+type ToastType = 'success' | 'error' | 'warning' | 'loading' | null;
+interface ToastState { show: boolean; msg: string; type: ToastType; }
+
+const Toast: React.FC<{ state: ToastState }> = ({ state }) => {
+    if (!state.show) return null;
+    
+    let bg = "bg-stone-800";
+    let icon = <Loader2 size={16} className="animate-spin text-stone-400"/>;
+    
+    if (state.type === 'success') { bg = "bg-emerald-600"; icon = <CheckCircle size={16} className="text-white"/>; }
+    if (state.type === 'error') { bg = "bg-rose-600"; icon = <AlertCircle size={16} className="text-white"/>; }
+    if (state.type === 'warning') { bg = "bg-amber-600"; icon = <Cloud size={16} className="text-white"/>; }
+
+    return (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[200] animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <div className={`${bg} text-white px-4 py-3 rounded-full shadow-xl flex items-center gap-3 min-w-[200px] justify-center`}>
+                {icon}
+                <span className="text-sm font-bold tracking-wide">{state.msg}</span>
+            </div>
+        </div>
+    );
+};
+
+// --- 开关组件 ---
 const ToggleSwitch: React.FC<{ checked: boolean; onChange: () => void; disabled?: boolean }> = ({ checked, onChange, disabled }) => (
     <div 
-        onClick={(e) => { 
-            e.stopPropagation(); // 阻止冒泡，防止触发卡片点击
-            if(!disabled) onChange(); 
-        }}
+        onClick={(e) => { e.stopPropagation(); if(!disabled) onChange(); }}
         className={`relative w-11 h-6 rounded-full transition-colors duration-300 ease-in-out flex items-center px-0.5 cursor-pointer z-20 ${checked ? 'bg-amber-500' : 'bg-stone-300'} ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:ring-2 hover:ring-amber-200/50'}`}
     >
         <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-300 ${checked ? 'translate-x-5' : 'translate-x-0'}`} />
@@ -38,10 +59,30 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
     onLogout
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
-    const [syncStatus, setSyncStatus] = useState<'idle'|'loading'|'success'|'error'>('idle');
+    
+    // Toast 状态管理
+    const [toast, setToast] = useState<ToastState>({ show: false, msg: '', type: null });
+    
+    // 辅助函数：显示 Toast
+    const showToast = (msg: string, type: ToastType, duration = 2000) => {
+        setToast({ show: true, msg, type });
+        if (type !== 'loading') {
+            setTimeout(() => setToast(prev => ({ ...prev, show: false })), duration);
+        }
+    };
+
+    // 辅助函数：处理服务层返回结果
+    const handleResult = (result: any, successMsg: string) => {
+        if (result._cloudError) {
+            showToast('已存本地，云端同步失败', 'warning', 3000);
+        } else {
+            showToast(successMsg, 'success');
+        }
+        return result; // 返回纯净的数组给 setState (React 会忽略 _cloudError 属性)
+    };
+
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editForm, setEditForm] = useState<{ name: string; tags: string }>({ name: '', tags: '' });
-
     const editingProfile = editingId ? archives.find(p => p.id === editingId) : null;
 
     const filtered = archives.filter(p => 
@@ -53,28 +94,35 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
     const handleDelete = async (e: React.MouseEvent, id: string) => {
         e.stopPropagation();
         if (window.confirm('确定要删除这条档案吗？聊天记录也将被移除。')) {
-            const newList = await deleteArchive(id);
-            setArchives(newList);
+            showToast('正在删除...', 'loading');
+            try {
+                const newList = await deleteArchive(id);
+                setArchives(handleResult(newList, '删除成功'));
+            } catch (e) {
+                showToast('删除失败', 'error');
+            }
         }
     };
 
     const handleSetSelf = async (id: string) => {
-        const newList = await setArchiveAsSelf(id);
-        setArchives(newList);
+        showToast('正在更新状态...', 'loading');
+        try {
+            const newList = await setArchiveAsSelf(id);
+            setArchives(handleResult(newList, '已设为本人命盘'));
+        } catch (e) {
+            showToast('设置失败', 'error');
+        }
     };
 
     const handleSync = async () => {
         if (!session?.user) return alert("请先登录");
-        setSyncStatus('loading');
+        showToast('正在同步云端...', 'loading');
         try {
             const newList = await syncArchivesFromCloud(session.user.id);
-            setArchives(newList);
-            setSyncStatus('success');
-            setTimeout(() => setSyncStatus('idle'), 2000); 
+            setArchives(handleResult(newList, '云端同步完成'));
         } catch (e) {
             console.error(e);
-            setSyncStatus('error');
-            setTimeout(() => setSyncStatus('idle'), 3000);
+            showToast('同步失败，请检查网络', 'error');
         }
     };
 
@@ -98,15 +146,20 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
         if (!editingProfile) return;
         if (!editForm.name.trim()) return alert("姓名不能为空");
 
+        showToast('正在保存...', 'loading');
         const updatedProfile = {
             ...editingProfile,
             name: editForm.name,
             tags: editForm.tags.split(' ').map(t => t.trim()).filter(t => t !== '')
         };
 
-        const newList = await updateArchive(updatedProfile);
-        setArchives(newList);
-        setEditingId(null);
+        try {
+            const newList = await updateArchive(updatedProfile);
+            setArchives(handleResult(newList, '档案修改已保存'));
+            setEditingId(null);
+        } catch (e) {
+            showToast('保存失败', 'error');
+        }
     };
 
     const cancelEdit = () => {
@@ -116,6 +169,9 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
     return (
         <div className="h-full flex flex-col bg-[#f5f5f4] relative">
             
+            {/* 🔥 全局 Toast 挂载点 */}
+            <Toast state={toast} />
+
             {/* 顶部黑金会员卡 */}
             <div className="bg-[#1c1917] p-6 pb-12 rounded-b-[2.5rem] shadow-2xl relative overflow-hidden shrink-0">
                 <div className="absolute top-[-50%] right-[-10%] w-[80%] h-[200%] bg-gradient-to-b from-amber-500/10 via-transparent to-transparent rotate-12 pointer-events-none blur-3xl"></div>
@@ -178,21 +234,10 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                     {session && (
                         <button 
                             onClick={handleSync}
-                            disabled={syncStatus === 'loading' || syncStatus === 'success'}
-                            className={`
-                                flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg border
-                                ${syncStatus === 'success' 
-                                    ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400' 
-                                    : syncStatus === 'error'
-                                        ? 'bg-rose-500/10 border-rose-500/50 text-rose-400'
-                                        : 'bg-stone-800 border-stone-700 text-stone-400 hover:text-stone-200 hover:border-stone-500'
-                                }
-                            `}
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg border bg-stone-800 border-stone-700 text-stone-400 hover:text-stone-200 hover:border-stone-500 active:scale-95"
                         >
-                            <RefreshCw size={12} className={syncStatus === 'loading' ? 'animate-spin' : ''} />
-                            {syncStatus === 'loading' ? '同步中...' : 
-                             syncStatus === 'success' ? '已同步' : 
-                             syncStatus === 'error' ? '重试' : '云端同步'}
+                            <RefreshCw size={12} className={toast.type === 'loading' ? 'animate-spin' : ''} />
+                            云端同步
                         </button>
                     )}
                 </div>
@@ -262,8 +307,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                                 </div>
 
                                 <div className="flex flex-col items-end gap-3">
-                                    {/* 修复：给开关容器增加独立的点击事件处理 */}
-                                    <div className="flex items-center gap-2 z-10" onClick={e => e.stopPropagation()}>
+                                    <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
                                         <span className={`text-[9px] font-bold ${profile.isSelf ? 'text-amber-600' : 'text-stone-300'}`}>
                                             {profile.isSelf ? '当前账号' : '设为本人'}
                                         </span>
@@ -300,13 +344,10 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
             {/* 🔥 全局编辑弹窗 (黑金风格版) */}
             {editingId && editingProfile && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
-                    {/* 深色遮罩 */}
                     <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={cancelEdit}></div>
                     
-                    {/* 黑金卡片弹窗 */}
                     <div className="relative bg-[#1c1917] w-full max-w-sm rounded-[2rem] shadow-2xl p-6 space-y-6 animate-in zoom-in-95 duration-200 border border-stone-800" onClick={e => e.stopPropagation()}>
                         
-                        {/* 标题 */}
                         <div className="flex justify-between items-center border-b border-stone-800 pb-4">
                             <h3 className="font-black text-stone-100 text-lg flex items-center gap-2">
                                 <div className="p-2 bg-stone-800 rounded-full text-amber-500">
@@ -319,9 +360,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                             </button>
                         </div>
 
-                        {/* 表单内容 */}
                         <div className="space-y-5">
-                            {/* 姓名输入 */}
                             <div className="space-y-2">
                                 <label className="text-xs font-bold text-stone-500 ml-1">姓名</label>
                                 <input 
@@ -333,7 +372,6 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                                 />
                             </div>
 
-                            {/* 标签输入 */}
                             <div className="space-y-2">
                                 <label className="text-xs font-bold text-stone-500 ml-1 flex items-center gap-1">
                                     <Tag size={12}/> 标签 (空格分隔)
@@ -345,7 +383,6 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                                     placeholder="例如：客户 朋友"
                                 />
                                 
-                                {/* 快捷标签按钮 (琥珀金风格) */}
                                 <div className="flex flex-wrap gap-2 mt-3">
                                     {PRESET_TAGS.map(tag => (
                                         <button
@@ -360,7 +397,6 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                             </div>
                         </div>
 
-                        {/* 底部按钮区 */}
                         <div className="flex gap-3 pt-2">
                             <button 
                                 onClick={cancelEdit} 
