@@ -13,17 +13,19 @@ interface ArchiveViewProps {
     onLogout: () => void;
 }
 
-// 预设的快捷标签
 const PRESET_TAGS = ["客户", "朋友", "家人", "同事", "VIP", "重要", "案例"];
 
-// --- 子组件：滑动开关 ---
+// --- 子组件：滑动开关 (增大热区，优化手感) ---
 const ToggleSwitch: React.FC<{ checked: boolean; onChange: () => void; disabled?: boolean }> = ({ checked, onChange, disabled }) => (
-    <button 
-        onClick={(e) => { e.stopPropagation(); if(!disabled) onChange(); }}
-        className={`relative w-10 h-5 rounded-full transition-colors duration-300 ease-in-out ${checked ? 'bg-amber-500' : 'bg-stone-300'} ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+    <div 
+        onClick={(e) => { 
+            e.stopPropagation(); // 阻止冒泡，防止触发卡片点击
+            if(!disabled) onChange(); 
+        }}
+        className={`relative w-11 h-6 rounded-full transition-colors duration-300 ease-in-out flex items-center px-0.5 cursor-pointer z-20 ${checked ? 'bg-amber-500' : 'bg-stone-300'} ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:ring-2 hover:ring-amber-200/50'}`}
     >
-        <div className={`absolute top-1 left-1 w-3 h-3 bg-white rounded-full shadow-md transform transition-transform duration-300 ${checked ? 'translate-x-5' : 'translate-x-0'}`} />
-    </button>
+        <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-300 ${checked ? 'translate-x-5' : 'translate-x-0'}`} />
+    </div>
 );
 
 export const ArchiveView: React.FC<ArchiveViewProps> = ({ 
@@ -37,15 +39,11 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [syncStatus, setSyncStatus] = useState<'idle'|'loading'|'success'|'error'>('idle');
-    
-    // 编辑状态
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editForm, setEditForm] = useState<{ name: string; tags: string }>({ name: '', tags: '' });
 
-    // 获取当前正在编辑的 profile 对象
     const editingProfile = editingId ? archives.find(p => p.id === editingId) : null;
 
-    // 过滤逻辑
     const filtered = archives.filter(p => 
         (p.name && p.name.includes(searchTerm)) || 
         (p.birthDate && p.birthDate.includes(searchTerm)) ||
@@ -80,14 +78,12 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
         }
     };
 
-    // 进入编辑模式
     const startEdit = (e: React.MouseEvent, profile: UserProfile) => {
         e.stopPropagation();
         setEditingId(profile.id);
         setEditForm({ name: profile.name, tags: profile.tags?.join(' ') || '' });
     };
 
-    // 添加快捷标签
     const addTag = (e: React.MouseEvent, tag: string) => {
         e.preventDefault();
         e.stopPropagation();
@@ -98,7 +94,6 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
         }
     };
 
-    // 保存编辑
     const saveEdit = async () => {
         if (!editingProfile) return;
         if (!editForm.name.trim()) return alert("姓名不能为空");
@@ -114,7 +109,6 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
         setEditingId(null);
     };
 
-    // 取消编辑
     const cancelEdit = () => {
         setEditingId(null);
     };
@@ -268,7 +262,8 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                                 </div>
 
                                 <div className="flex flex-col items-end gap-3">
-                                    <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                                    {/* 修复：给开关容器增加独立的点击事件处理 */}
+                                    <div className="flex items-center gap-2 z-10" onClick={e => e.stopPropagation()}>
                                         <span className={`text-[9px] font-bold ${profile.isSelf ? 'text-amber-600' : 'text-stone-300'}`}>
                                             {profile.isSelf ? '当前账号' : '设为本人'}
                                         </span>
@@ -279,17 +274,16 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                                     </div>
 
                                     <div className="flex items-center gap-1">
-                                        {/* 点击编辑：只设置状态，不再在卡片内渲染 */}
                                         <button 
                                             onClick={(e) => startEdit(e, profile)}
-                                            className="p-1.5 text-stone-300 hover:text-indigo-500 hover:bg-indigo-50 rounded-full transition-colors"
+                                            className="p-1.5 text-stone-300 hover:text-amber-500 hover:bg-amber-50 rounded-full transition-colors z-10"
                                             title="编辑资料"
                                         >
                                             <Edit3 size={14} />
                                         </button>
                                         <button 
                                             onClick={(e) => handleDelete(e, profile.id)}
-                                            className="p-1.5 text-stone-300 hover:text-rose-500 hover:bg-rose-50 rounded-full transition-colors"
+                                            className="p-1.5 text-stone-300 hover:text-rose-500 hover:bg-rose-50 rounded-full transition-colors z-10"
                                             title="删除档案"
                                         >
                                             <Trash2 size={14} />
@@ -303,61 +297,61 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                 )}
             </div>
 
-            {/* 🔥 全局编辑弹窗 (修复遮挡问题) */}
+            {/* 🔥 全局编辑弹窗 (黑金风格版) */}
             {editingId && editingProfile && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
-                    {/* 遮罩背景 */}
-                    <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm" onClick={cancelEdit}></div>
+                    {/* 深色遮罩 */}
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={cancelEdit}></div>
                     
-                    {/* 弹窗卡片 */}
-                    <div className="relative bg-white w-full max-w-sm rounded-[2rem] shadow-2xl p-6 space-y-5 animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                    {/* 黑金卡片弹窗 */}
+                    <div className="relative bg-[#1c1917] w-full max-w-sm rounded-[2rem] shadow-2xl p-6 space-y-6 animate-in zoom-in-95 duration-200 border border-stone-800" onClick={e => e.stopPropagation()}>
                         
                         {/* 标题 */}
-                        <div className="flex justify-between items-center border-b border-stone-100 pb-4">
-                            <h3 className="font-black text-stone-800 text-lg flex items-center gap-2">
-                                <div className="p-2 bg-indigo-50 rounded-full text-indigo-600">
+                        <div className="flex justify-between items-center border-b border-stone-800 pb-4">
+                            <h3 className="font-black text-stone-100 text-lg flex items-center gap-2">
+                                <div className="p-2 bg-stone-800 rounded-full text-amber-500">
                                     <Edit3 size={18}/>
                                 </div>
                                 编辑档案
                             </h3>
-                            <button onClick={cancelEdit} className="p-2 text-stone-400 hover:text-stone-600 rounded-full hover:bg-stone-100 transition-colors">
+                            <button onClick={cancelEdit} className="p-2 text-stone-500 hover:text-stone-300 rounded-full hover:bg-stone-800 transition-colors">
                                 <X size={20}/>
                             </button>
                         </div>
 
                         {/* 表单内容 */}
-                        <div className="space-y-4">
+                        <div className="space-y-5">
                             {/* 姓名输入 */}
-                            <div className="space-y-1.5">
+                            <div className="space-y-2">
                                 <label className="text-xs font-bold text-stone-500 ml-1">姓名</label>
                                 <input 
                                     autoFocus
                                     value={editForm.name}
                                     onChange={e => setEditForm({...editForm, name: e.target.value})}
-                                    className="w-full bg-stone-50 rounded-xl px-4 py-3 text-sm font-bold text-stone-800 outline-none border border-stone-200 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all"
+                                    className="w-full bg-stone-900/50 rounded-xl px-4 py-3 text-sm font-bold text-stone-200 outline-none border border-stone-800 focus:border-amber-500/50 focus:bg-stone-900 focus:ring-4 focus:ring-amber-500/10 transition-all placeholder:text-stone-600"
                                     placeholder="请输入姓名"
                                 />
                             </div>
 
                             {/* 标签输入 */}
-                            <div className="space-y-1.5">
+                            <div className="space-y-2">
                                 <label className="text-xs font-bold text-stone-500 ml-1 flex items-center gap-1">
                                     <Tag size={12}/> 标签 (空格分隔)
                                 </label>
                                 <input 
                                     value={editForm.tags}
                                     onChange={e => setEditForm({...editForm, tags: e.target.value})}
-                                    className="w-full bg-stone-50 rounded-xl px-4 py-3 text-sm text-stone-600 outline-none border border-stone-200 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all"
+                                    className="w-full bg-stone-900/50 rounded-xl px-4 py-3 text-sm text-stone-300 outline-none border border-stone-800 focus:border-amber-500/50 focus:bg-stone-900 focus:ring-4 focus:ring-amber-500/10 transition-all placeholder:text-stone-600"
                                     placeholder="例如：客户 朋友"
                                 />
                                 
-                                {/* 快捷标签按钮 */}
-                                <div className="flex flex-wrap gap-2 mt-2">
+                                {/* 快捷标签按钮 (琥珀金风格) */}
+                                <div className="flex flex-wrap gap-2 mt-3">
                                     {PRESET_TAGS.map(tag => (
                                         <button
                                             key={tag}
                                             onClick={(e) => addTag(e, tag)}
-                                            className="flex items-center gap-1 px-3 py-1.5 bg-stone-100 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 border border-transparent rounded-lg text-xs text-stone-500 font-medium transition-all active:scale-95"
+                                            className="flex items-center gap-1 px-3 py-1.5 bg-stone-800 hover:bg-amber-500 hover:text-[#1c1917] border border-stone-700 hover:border-amber-400 rounded-lg text-xs text-stone-400 font-medium transition-all active:scale-95"
                                         >
                                             <Plus size={10}/> {tag}
                                         </button>
@@ -366,17 +360,17 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                             </div>
                         </div>
 
-                        {/* 底部操作按钮 */}
+                        {/* 底部按钮区 */}
                         <div className="flex gap-3 pt-2">
                             <button 
                                 onClick={cancelEdit} 
-                                className="flex-1 py-3.5 rounded-xl text-sm font-bold text-stone-500 bg-stone-100 hover:bg-stone-200 transition-colors"
+                                className="flex-1 py-3.5 rounded-xl text-sm font-bold text-stone-400 bg-stone-800 hover:bg-stone-700 transition-colors"
                             >
                                 取消
                             </button>
                             <button 
                                 onClick={saveEdit} 
-                                className="flex-1 py-3.5 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-500/30 transition-all active:scale-95 flex items-center justify-center gap-2"
+                                className="flex-1 py-3.5 rounded-xl text-sm font-bold text-[#1c1917] bg-amber-500 hover:bg-amber-400 shadow-lg shadow-amber-900/20 transition-all active:scale-95 flex items-center justify-center gap-2"
                             >
                                 <Save size={16}/> 保存修改
                             </button>
