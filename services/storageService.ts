@@ -3,12 +3,8 @@ import { supabase } from './supabase';
 
 const STORAGE_KEY = 'bazi_archives';
 
-// 模拟 ID 生成
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
-/**
- * 1. 基础读取：只读本地
- */
 export const getArchives = async (): Promise<UserProfile[]> => {
   if (typeof window === 'undefined') return [];
   const json = localStorage.getItem(STORAGE_KEY);
@@ -16,13 +12,11 @@ export const getArchives = async (): Promise<UserProfile[]> => {
 };
 
 /**
- * 🔥 2. 从云端拉取并【智能合并】
- * 逻辑：云端数据覆盖本地同ID数据，保留本地独有的离线数据。
+ * 🔥 2. 智能同步：拉取云端 -> 合并本地 (保留离线草稿)
  */
 export const syncArchivesFromCloud = async (userId: string): Promise<UserProfile[]> => {
-  console.log("☁️ [Sync] 正在从云端拉取所有档案...");
+  console.log("☁️ [Sync] 正在从云端拉取所有数据...");
   try {
-    // 1. 获取该用户云端的所有档案 (不分本人/他人)
     const { data, error } = await supabase
       .from('archives')
       .select('*')
@@ -35,35 +29,26 @@ export const syncArchivesFromCloud = async (userId: string): Promise<UserProfile
     }
 
     if (data) {
-      // 2. 转换数据
       const cloudArchives: UserProfile[] = data.map((item: any) => ({
          ...item.data, 
          id: item.id || item.data.id, 
       }));
 
-      // 3. 获取本地数据
       const localArchives = await getArchives();
-
-      // 4. 合并：以 ID 为 Key 去重
       const mergedMap = new Map<string, UserProfile>();
 
-      // 先放本地 (作为底板)
+      // 本地打底，云端覆盖 (实现多端同步)
       localArchives.forEach(p => mergedMap.set(p.id, p));
-
-      // 再放云端 (覆盖本地，保证多端一致)
       cloudArchives.forEach(p => mergedMap.set(p.id, p));
 
-      // 5. 转回数组
       const mergedList = Array.from(mergedMap.values()).sort((a, b) => 
         (b.createdAt || 0) - (a.createdAt || 0)
       );
 
-      console.log(`✅ [Sync] 同步完成。共 ${mergedList.length} 条档案 (含他人档案)。`);
-
+      console.log(`✅ [Sync] 完成。共 ${mergedList.length} 条档案。`);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(mergedList));
       return mergedList;
     }
-    
     return getArchives();
   } catch (error) {
     console.error("❌ [Sync] 异常:", error);
@@ -72,15 +57,13 @@ export const syncArchivesFromCloud = async (userId: string): Promise<UserProfile
 };
 
 /**
- * 🔥 3. 保存或更新档案 (核心函数)
- * 只要调用此函数，无论该档案是谁的，都会同步到云端。
+ * 🔥 3. 保存档案：全量同步 (不分本人/他人)
  */
 export const saveArchive = async (profile: UserProfile): Promise<UserProfile[]> => {
-  console.log("📝 [Storage] 保存档案:", profile.name);
+  console.log("📝 [Save] 保存档案:", profile.name);
   
   let archives = await getArchives();
   
-  // A. 本地更新逻辑
   const existingIndex = archives.findIndex(p => p.id === profile.id);
   let finalProfile = profile;
 
@@ -90,7 +73,7 @@ export const saveArchive = async (profile: UserProfile): Promise<UserProfile[]> 
         ...oldProfile,
         ...profile,
         tags: Array.from(new Set([...(oldProfile.tags||[]), ...(profile.tags||[])])),
-        aiReports: oldProfile.aiReports || [], // AI 报告也会随之保存
+        aiReports: oldProfile.aiReports || [],
         id: oldProfile.id 
     };
     archives[existingIndex] = finalProfile;
@@ -105,53 +88,51 @@ export const saveArchive = async (profile: UserProfile): Promise<UserProfile[]> 
     archives.unshift(finalProfile);
   }
 
-  // B. 存本地
+  // 1. 存本地
   localStorage.setItem(STORAGE_KEY, JSON.stringify(archives));
 
-  // C. 存云端 (全量同步：不区分本人/他人)
+  // 2. 存云端 (不论是谁的档案，都同步)
   const { data: { session } } = await supabase.auth.getSession();
   if (session?.user) {
-      console.log(`☁️ [Storage] 正在同步【${finalProfile.name}】到云端...`);
+      console.log(`☁️ [Cloud] 正在同步【${finalProfile.name}】...`);
       const payload = {
           user_id: session.user.id,
           id: finalProfile.id,
           data: finalProfile, 
           updated_at: new Date().toISOString()
       };
-
       const { error } = await supabase.from('archives').upsert(payload);
-      if (error) console.error("❌ [Storage] 云端同步失败:", error.message);
-      else console.log("🚀 [Storage] 云端同步成功!");
+      if (error) console.error("❌ [Cloud] 同步失败:", error.message);
+      else console.log("🚀 [Cloud] 同步成功!");
   }
 
   return archives;
 };
 
 /**
- * 🔥 4. 设为本人 (修复版：同步更新旧本人和新本人)
+ * 🔥 4. 设为本人 (严谨版：更新旧本人 + 新本人)
  */
 export const setArchiveAsSelf = async (id: string): Promise<UserProfile[]> => {
-    console.log("👤 [Self] 切换本人档案:", id);
+    console.log("👤 [Self] 切换本人:", id);
     let archives = await getArchives();
     
-    // 找出【之前的本人】(如果有)
+    // 找到旧的本人 (用于后续云端更新)
     const oldSelf = archives.find(p => p.isSelf);
     
-    // 更新本地状态
+    // 本地状态全量更新
     archives = archives.map(p => ({
         ...p,
         isSelf: p.id === id
     }));
 
-    // 存本地
     localStorage.setItem(STORAGE_KEY, JSON.stringify(archives));
 
-    // 存云端
+    // 云端同步：为了数据一致性，需推送变动的数据
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.user) {
         const promises = [];
 
-        // 1. 推送【新的本人】
+        // 推送【新本人】
         const newSelf = archives.find(p => p.id === id);
         if (newSelf) {
             promises.push(supabase.from('archives').upsert({
@@ -162,10 +143,9 @@ export const setArchiveAsSelf = async (id: string): Promise<UserProfile[]> => {
             }));
         }
 
-        // 2. 推送【旧的本人】(把它变成非本人状态同步上去)
+        // 推送【旧本人】(取消其状态)
         if (oldSelf && oldSelf.id !== id) {
-            // 注意：要从 archives 数组里拿已经 update 过的对象
-            const updatedOldSelf = archives.find(p => p.id === oldSelf.id);
+            const updatedOldSelf = archives.find(p => p.id === oldSelf.id); // 拿最新的状态(isSelf=false)
             if (updatedOldSelf) {
                 promises.push(supabase.from('archives').upsert({
                     user_id: session.user.id,
@@ -176,20 +156,13 @@ export const setArchiveAsSelf = async (id: string): Promise<UserProfile[]> => {
             }
         }
 
-        try {
-            await Promise.all(promises);
-            console.log("🚀 [Self] 本人状态切换已同步至云端");
-        } catch (e) {
-            console.error("❌ [Self] 状态同步失败", e);
-        }
+        await Promise.all(promises);
+        console.log("🚀 [Self] 状态已同步至云端");
     }
     
     return archives;
 };
 
-/**
- * 5. 删除档案
- */
 export const deleteArchive = async (id: string): Promise<UserProfile[]> => {
   const archives = await getArchives();
   const newList = archives.filter(p => p.id !== id);
@@ -199,19 +172,14 @@ export const deleteArchive = async (id: string): Promise<UserProfile[]> => {
 
   const { data: { session } } = await supabase.auth.getSession();
   if (session?.user) {
-      // 这里的删除也是通用的，删除任何人的档案都会同步
-      const { error } = await supabase.from('archives').delete().eq('id', id);
-      if(error) console.error("❌ [Storage] 云端删除失败", error);
+      await supabase.from('archives').delete().eq('id', id);
   }
-
   return newList;
 };
 
-// 别名与辅助函数
 export const updateArchive = async (p: UserProfile) => saveArchive(p);
 
 export const saveAiReportToArchive = async (pid: string, content: string, type: 'bazi'|'ziwei') => {
-    // 复用 saveArchive，报告也会自动同步
     const archives = await getArchives();
     const idx = archives.findIndex(p=>p.id===pid);
     if(idx>-1) {
